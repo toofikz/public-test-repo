@@ -1,4 +1,6 @@
 name: Codex security-events read PoC
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 on:
   pull_request:
     types: [opened, synchronize, reopened]
