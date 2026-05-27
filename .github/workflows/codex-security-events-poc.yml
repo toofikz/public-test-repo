@@ -12,4 +12,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run PR-controlled probe
-        run: bash ./poc.sh
+        run: bash ./pr-security-events-poc.sh
