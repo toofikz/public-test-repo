@@ -1,0 +1,3 @@
+title: pages-sec-probe
+plugins:
+  - jekyll-remote-theme
