@@ -1,3 +1,2 @@
-title: pages-sec-probe
-plugins:
-  - jekyll-remote-theme
+title: probe2
+remote_theme: tooforg/public-test-repo
