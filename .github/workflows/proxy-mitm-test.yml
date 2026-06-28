@@ -1,0 +1,38 @@
+name: Proxy MITM Chain Test
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Step 1 — set proxy + TLS bypass env vars
+        run: |
+          # Set proxy
+          echo "https_proxy=http://127.0.0.1:9999" >> $GITHUB_ENV
+          echo "http_proxy=http://127.0.0.1:9999" >> $GITHUB_ENV
+          # Set TLS bypass for various runtimes
+          echo "NODE_TLS_REJECT_UNAUTHORIZED=0" >> $GITHUB_ENV
+          echo "GIT_SSL_NO_VERIFY=true" >> $GITHUB_ENV
+          echo "PYTHONHTTPSVERIFY=0" >> $GITHUB_ENV
+          echo "CURL_CA_BUNDLE=" >> $GITHUB_ENV
+          echo "REQUESTS_CA_BUNDLE=" >> $GITHUB_ENV
+          echo "Step 1: Set proxy + TLS bypass env vars"
+          
+      - name: Step 2 — verify env vars are set
+        run: |
+          echo "=== Proxy + TLS bypass env vars ==="
+          echo "https_proxy=$https_proxy"
+          echo "http_proxy=$http_proxy"
+          echo "NODE_TLS_REJECT_UNAUTHORIZED=$NODE_TLS_REJECT_UNAUTHORIZED"
+          echo "GIT_SSL_NO_VERIFY=$GIT_SSL_NO_VERIFY"
+          echo "PYTHONHTTPSVERIFY=$PYTHONHTTPSVERIFY"
+          echo "CURL_CA_BUNDLE=$CURL_CA_BUNDLE"
+          echo "REQUESTS_CA_BUNDLE=$REQUESTS_CA_BUNDLE"
+          echo ""
+          echo "=== Which are BLOCKED vs ALLOWED? ==="
+          echo "All vars above should show values if they bypass the blocklist"
+          echo "Empty or missing = blocked"
