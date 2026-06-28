@@ -1,0 +1,44 @@
+name: Symlink Artifact Test
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  test-symlink:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test symlinks
+        run: |
+          # Create symlinks to various runner files (non-sensitive for PoC)
+          ln -s /etc/hostname symlink-hostname
+          ln -s /etc/os-release symlink-os-release
+          # Show what we created
+          ls -la symlink-*
+          echo "Workspace: $GITHUB_WORKSPACE"
+          echo "Contents of /etc/hostname:"
+          cat /etc/hostname
+          echo "---"
+          # Also check what env vars would be exposed
+          echo "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"
+          echo "ACTIONS vars present:"
+          env | grep -c "ACTIONS_\|GITHUB_\|RUNNER_"
+
+      - name: Upload artifact with symlinks
+        uses: actions/upload-artifact@v4
+        with:
+          name: symlink-test-artifact
+          path: |
+            symlink-*
+          retention-days: 1
+
+      - name: Also test with wildcard path
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-workspace-artifact
+          path: .
+          retention-days: 1
