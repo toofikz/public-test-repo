@@ -1,0 +1,32 @@
+name: Workflow Run Spy
+on:
+  workflow_run:
+    workflows: ["PR Analysis (vulnerable pattern)"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  spy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check what data workflow_run event provides
+        run: |
+          echo "=== workflow_run event ==="
+          echo "Triggering workflow: ${{ github.event.workflow_run.name }}"
+          echo "Triggering head_sha: ${{ github.event.workflow_run.head_sha }}"
+          echo "Triggering head_branch: ${{ github.event.workflow_run.head_branch }}"
+          echo "Triggering actor: ${{ github.event.workflow_run.actor.login }}"
+          echo "Triggering conclusion: ${{ github.event.workflow_run.conclusion }}"
+          echo "Triggering PR numbers: ${{ toJSON(github.event.workflow_run.pull_requests) }}"
+          
+          echo ""
+          echo "=== Can we download artifacts from the triggering run? ==="
+          curl -s -H "Authorization: bearer ${{ github.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/artifacts" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for a in d.get('artifacts',[]):
+    print(f'  Artifact: {a[\"name\"]} ({a[\"size_in_bytes\"]}b)')" 2>/dev/null
