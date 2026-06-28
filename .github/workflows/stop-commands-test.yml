@@ -1,0 +1,36 @@
+name: Stop Commands Secret Unmask Test
+on:
+  workflow_dispatch:
+    inputs:
+      test_input:
+        description: 'Test input'
+        default: 'safe input'
+
+permissions:
+  contents: read
+
+env:
+  TEST_SECRET: "SUPER_SECRET_VALUE_CANARY_987654321"
+
+jobs:
+  test-unmask:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Register the secret for masking
+        run: |
+          echo "::add-mask::$TEST_SECRET"
+          echo "Step 1: Secret should be masked: $TEST_SECRET"
+          
+      - name: Inject stop-commands via echo (simulating untrusted input)
+        run: |
+          # Simulate: an action logs untrusted input that contains ::stop-commands::
+          UNTRUSTED_INPUT='::stop-commands::injection-token-xyz'
+          echo "$UNTRUSTED_INPUT"
+          echo "Step 2: After stop-commands injection"
+          
+      - name: Try to log the secret — should it be masked?
+        run: |
+          echo "Step 3: Secret value is: $TEST_SECRET"
+          echo "If you see SUPER_SECRET_VALUE above, the injection WORKED"
+          echo "::injection-token-xyz::"
+          echo "Step 3 continued after resuming commands"
