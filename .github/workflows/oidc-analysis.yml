@@ -1,0 +1,67 @@
+name: OIDC Token Analysis
+on:
+  workflow_dispatch:
+    inputs:
+      test_label:
+        description: 'Test identifier'
+        default: 'oidc-claim-analysis'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  analyze-oidc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get OIDC token and decode claims
+        run: |
+          # Request OIDC token
+          TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r '.value')
+          
+          # Decode JWT payload (base64url)
+          PAYLOAD=$(echo "$TOKEN" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null)
+          
+          echo "=== OIDC Token Claims ==="
+          echo "$PAYLOAD" | jq .
+          
+          echo ""
+          echo "=== Key Security Claims ==="
+          echo "sub: $(echo $PAYLOAD | jq -r '.sub')"
+          echo "repository: $(echo $PAYLOAD | jq -r '.repository')"  
+          echo "repository_owner: $(echo $PAYLOAD | jq -r '.repository_owner')"
+          echo "actor: $(echo $PAYLOAD | jq -r '.actor')"
+          echo "ref: $(echo $PAYLOAD | jq -r '.ref')"
+          echo "sha: $(echo $PAYLOAD | jq -r '.sha')"
+          echo "job_workflow_ref: $(echo $PAYLOAD | jq -r '.job_workflow_ref')"
+          echo "workflow_ref: $(echo $PAYLOAD | jq -r '.workflow_ref')"
+          echo "runner_environment: $(echo $PAYLOAD | jq -r '.runner_environment')"
+          echo "aud: $(echo $PAYLOAD | jq -r '.aud')"
+          echo "iss: $(echo $PAYLOAD | jq -r '.iss')"
+          
+          # Test: request token with custom audience
+          TOKEN2=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://github.com" | jq -r '.value')
+          PAYLOAD2=$(echo "$TOKEN2" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null)
+          echo ""
+          echo "=== Custom audience (github.com) ==="
+          echo "aud: $(echo $PAYLOAD2 | jq -r '.aud')"
+          
+          # Test: request token with internal audience
+          TOKEN3=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://ActionsOIDCGateway" | jq -r '.value')
+          PAYLOAD3=$(echo "$TOKEN3" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null)
+          echo ""
+          echo "=== Internal audience ==="
+          echo "aud: $(echo $PAYLOAD3 | jq -r '.aud')"
+
+          # Test: can the OIDC token be used against GitHub API?
+          echo ""
+          echo "=== Testing OIDC token against GitHub API ==="
+          echo "REST API:"
+          curl -s -o /dev/null -w "%{http_code}" -H "Authorization: bearer $TOKEN" https://api.github.com/user
+          echo ""
+          echo "GraphQL:"
+          curl -s -o /dev/null -w "%{http_code}" -H "Authorization: bearer $TOKEN" https://api.github.com/graphql -d '{"query":"{ viewer { login } }"}'
+          echo ""
