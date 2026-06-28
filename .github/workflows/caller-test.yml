@@ -1,0 +1,8 @@
+name: Caller Workflow
+on:
+  workflow_dispatch:
+
+jobs:
+  call-reusable:
+    uses: toofikz4/public-test-repo/.github/workflows/reusable-test.yml@main
+    secrets: inherit
