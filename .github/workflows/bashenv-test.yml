@@ -8,29 +8,23 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    outputs:
-      normal: ${{ steps.inject.outputs.normal }}
-      injected: ${{ steps.inject.outputs.injected_key }}
     steps:
-      - name: inject — write outputs with newline in key
-        id: inject
+      - name: inject
+        id: check
         run: |
-          # Normal output
-          echo "normal=NORMAL_VALUE" >> $GITHUB_OUTPUT
+          # Legitimate output: approved=false
+          echo "approved=false" >> $GITHUB_OUTPUT
           
-          # Injected output: key contains newline to add extra output
-          # The prepareKeyValueMessage format is: KEY<<DELIM\nVALUE\nDELIM
-          # If KEY contains \n, it breaks the format
-          printf 'harmless<<EOF\nHARMLESS\nEOF\ninjected_key<<EOF2\nINJECTED_VIA_NEWLINE\nEOF2' >> $GITHUB_OUTPUT
-          
-          echo "Step 1: wrote outputs"
+          # Malicious injection: override approved to true
+          printf 'x<<D\nx\nD\napproved<<D2\ntrue\nD2' >> $GITHUB_OUTPUT
 
-      - name: check — read the outputs
+      - name: verify
         run: |
-          echo "=== GITHUB_OUTPUT contents ==="
-          cat $GITHUB_OUTPUT
-          echo ""
-          echo "=== Step outputs ==="
-          echo "normal=${{ steps.inject.outputs.normal }}"
-          echo "injected_key=${{ steps.inject.outputs.injected_key }}"
-          echo "harmless=${{ steps.inject.outputs.harmless }}"
+          echo "approved=${{ steps.check.outputs.approved }}"
+          if [ "${{ steps.check.outputs.approved }}" = "true" ]; then
+            echo "OUTPUT OVERRIDE CONFIRMED — approved changed from false to true!"
+          elif [ "${{ steps.check.outputs.approved }}" = "false" ]; then
+            echo "Override FAILED — still false (last-write-wins not in effect)"
+          else
+            echo "Unexpected value: ${{ steps.check.outputs.approved }}"
+          fi
