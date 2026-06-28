@@ -1,0 +1,67 @@
+name: Runner File Enumeration
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  enumerate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enumerate sensitive file locations
+        run: |
+          echo "=== Runner home ==="
+          ls -la /home/runner/ 2>/dev/null | head -20
+
+          echo ""
+          echo "=== Runner temp ==="
+          find /home/runner/work/_temp -maxdepth 2 -type f 2>/dev/null | head -20
+
+          echo ""
+          echo "=== Runner credentials ==="
+          find /home/runner -name ".credentials*" -o -name ".runner" -o -name ".env" -o -name "*.token" 2>/dev/null | head -10
+
+          echo ""
+          echo "=== Docker config ==="
+          cat /home/runner/.docker/config.json 2>/dev/null || echo "No docker config"
+
+          echo ""
+          echo "=== SSH keys ==="
+          ls -la /home/runner/.ssh/ 2>/dev/null || echo "No .ssh dir"
+
+          echo ""
+          echo "=== npm config ==="
+          cat /home/runner/.npmrc 2>/dev/null || echo "No .npmrc"
+
+          echo ""
+          echo "=== Git config ==="
+          cat /home/runner/.gitconfig 2>/dev/null || echo "No .gitconfig"
+
+          echo ""
+          echo "=== Runner file commands ==="
+          ls -la /home/runner/work/_temp/_runner_file_commands/ 2>/dev/null | head -10
+
+          echo ""
+          echo "=== Workflow temp files ==="
+          find /home/runner/work/_temp -name "*.sh" -o -name "*.json" -o -name "*.yml" 2>/dev/null | head -15
+
+          echo ""
+          echo "=== Process environ (self) ==="
+          cat /proc/self/environ | tr '\0' '\n' | grep -c "="
+          echo "total env vars"
+          
+          echo ""
+          echo "=== Check for GITHUB_TOKEN in env ==="
+          echo "GITHUB_TOKEN=${GITHUB_TOKEN:0:4}... (length: ${#GITHUB_TOKEN})"
+          
+          echo ""
+          echo "=== Runner worker PID environ ==="
+          # Find the runner worker process (parent of this shell)
+          PPID_PID=$(cat /proc/self/status | grep PPid | awk '{print $2}')
+          echo "Parent PID: $PPID_PID"
+          cat /proc/$PPID_PID/environ 2>/dev/null | tr '\0' '\n' | grep "GITHUB_TOKEN" | head -1 | sed 's/=ghs_.*/=ghs_[PRESENT]/' || echo "Cannot read parent environ"
+          
+          echo ""
+          echo "=== All processes ==="
+          ps auxf 2>/dev/null | head -20
