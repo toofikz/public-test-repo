@@ -1,0 +1,35 @@
+name: OIDC Environment Claims Test
+on: workflow_dispatch
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  with-env:
+    runs-on: ubuntu-latest
+    environment: protected-test
+    steps:
+      - name: Get OIDC with environment
+        run: |
+          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+            echo "OIDC URL not set"
+            exit 0
+          fi
+          RESP=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://default")
+          JWT=$(echo "$RESP" | jq -r .value)
+          PAYLOAD=$(echo "$JWT" | cut -d. -f2 | tr "+/" "-_" | base64 -d 2>/dev/null)
+          echo "=== ENV CLAIMS ==="
+          echo "$PAYLOAD" | jq "{environment, sub, repository, ref, event_name}"
+  without-env:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get OIDC without environment
+        run: |
+          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+            echo "OIDC URL not set"
+            exit 0
+          fi
+          RESP=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://default")
+          JWT=$(echo "$RESP" | jq -r .value)
+          PAYLOAD=$(echo "$JWT" | cut -d. -f2 | tr "+/" "-_" | base64 -d 2>/dev/null)
+          echo "=== NO ENV CLAIMS ==="
+          echo "$PAYLOAD" | jq "{environment, sub, repository, ref, event_name}"
