@@ -1,0 +1,22 @@
+name: Env Var Audit
+on: workflow_dispatch
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List all env var names containing SECRET or TOKEN
+        run: |
+          echo "=== ENV VARS WITH SECRET ==="
+          env | grep -i secret | cut -d= -f1 | sort
+          echo "=== ENV VARS WITH TOKEN ==="
+          env | grep -i token | cut -d= -f1 | sort
+          echo "=== ALL ACTIONS_ VARS ==="
+          env | grep ACTIONS_ | cut -d= -f1 | sort
+          echo "=== ALL RUNNER_ VARS ==="
+          env | grep RUNNER_ | cut -d= -f1 | sort
+          echo "=== ENV VARS THAT LOOK LIKE SECRETS (long values) ==="
+          env | awk -F= "length(\$2)>50{print \$1}" | sort
+          echo "=== DONE ==="
