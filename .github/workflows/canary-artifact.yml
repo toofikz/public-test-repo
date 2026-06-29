@@ -1,0 +1,20 @@
+name: canary-artifact
+on:
+  workflow_dispatch:
+
+jobs:
+  create-artifact:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create canary file
+        run: |
+          mkdir -p artifact-dir
+          echo "CANARY_VISIBILITY_TRANSITION_TEST_k3m5n7p9q1" > artifact-dir/canary.txt
+          echo "Created at: $(date -u)" >> artifact-dir/canary.txt
+          echo "Repo: $GITHUB_REPOSITORY" >> artifact-dir/canary.txt
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: canary-visibility-test
+          path: artifact-dir/
+          retention-days: 1
