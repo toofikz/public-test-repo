@@ -1,0 +1,27 @@
+name: cache-write-test
+on:
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+
+jobs:
+  cache-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create canary cache data
+        run: |
+          mkdir -p cache-dir
+          echo "CACHE_POISON_TEST_$(date +%s)_FROM_$GITHUB_EVENT_NAME" > cache-dir/canary.txt
+          echo "REF=$GITHUB_REF" >> cache-dir/canary.txt
+          echo "HEAD_REF=$GITHUB_HEAD_REF" >> cache-dir/canary.txt
+          echo "EVENT=$GITHUB_EVENT_NAME" >> cache-dir/canary.txt
+          echo "ACTOR=$GITHUB_ACTOR" >> cache-dir/canary.txt
+      - name: Write cache
+        uses: actions/cache/save@v4
+        with:
+          path: cache-dir
+          key: canary-cache-${{ github.event_name }}-${{ github.sha }}
+      - name: Report
+        run: |
+          echo "Cache written from event=$GITHUB_EVENT_NAME ref=$GITHUB_REF actor=$GITHUB_ACTOR"
+          echo "Expected: if this is a fork PR, cache write should be READ-ONLY (blocked)"
