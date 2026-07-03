@@ -1,0 +1,18 @@
+name: cache-scope-probe
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@v4
+        id: cache
+        with:
+          path: /tmp/cache-test
+          key: canary-cache-workflow_dispatch-4c9e3a38ef4fdee8dea07d7575733835eeb4dc9a
+          restore-keys: |
+            canary-cache-
+            poisonkey-
+      - run: |
+          echo "cache-hit=${{ steps.cache.outputs.cache-hit }}"
+          ls -la /tmp/cache-test 2>/dev/null || echo "no cache restored"
+          cat /tmp/cache-test/* 2>/dev/null || echo "empty"
