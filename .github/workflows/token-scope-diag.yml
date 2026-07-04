@@ -1,0 +1,46 @@
+name: Token Scope Diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Token permissions check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "=== GITHUB_TOKEN permissions ==="
+          curl -s -H "Authorization: token $GH_TOKEN" https://api.github.com/ -D - -o /dev/null 2>&1 | grep -i "x-oauth-scopes"
+          echo "=== Token user identity ==="
+          curl -s -H "Authorization: token $GH_TOKEN" https://api.github.com/user 2>/dev/null | jq '{login, id, type}' || echo "no user"
+          echo "=== Cross-repo access test ==="
+          echo "tooforg/private-test-repo:"
+          curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $GH_TOKEN" https://api.github.com/repos/tooforg/private-test-repo
+          echo ""
+          echo "toofikz4/private-canary-repo:"
+          curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $GH_TOKEN" https://api.github.com/repos/toofikz4/private-canary-repo
+          echo ""
+      - name: OIDC token claims
+        run: |
+          OIDC_TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://github.com/toofikz4" | jq -r '.value')
+          echo "=== OIDC Claims ==="
+          echo "$OIDC_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq '.'
+      - name: Runtime environment
+        run: |
+          echo "ACTIONS_RUNTIME_URL=${ACTIONS_RUNTIME_URL:-(not set)}"
+          echo "ACTIONS_CACHE_URL=${ACTIONS_CACHE_URL:-(not set)}"
+          echo "ACTIONS_RESULTS_URL=${ACTIONS_RESULTS_URL:-(not set)}"
+          if [ -n "$ACTIONS_CACHE_URL" ]; then
+            curl -s -H "Authorization: Bearer $ACTIONS_RUNTIME_TOKEN" "${ACTIONS_CACHE_URL}_apis/artifactcache/cache?keys=test&version=v1" | head -20
+          fi
+      - name: Create artifact
+        run: echo "CANARY_$(date +%s)" > canary.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scope-test-canary
+          path: canary.txt
+          retention-days: 1
