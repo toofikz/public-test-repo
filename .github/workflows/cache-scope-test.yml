@@ -1,0 +1,47 @@
+name: Cache Scope Test
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  cache-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create cache payload
+        run: |
+          mkdir -p .cache-dir
+          echo "BASE_REPO_CACHE_CANARY_$(date +%s)" > .cache-dir/canary.txt
+          echo "repo=$GITHUB_REPOSITORY" >> .cache-dir/canary.txt
+          echo "ref=$GITHUB_REF" >> .cache-dir/canary.txt
+          echo "sha=$GITHUB_SHA" >> .cache-dir/canary.txt
+          echo "event=$GITHUB_EVENT_NAME" >> .cache-dir/canary.txt
+          echo "actor=$GITHUB_ACTOR" >> .cache-dir/canary.txt
+          echo "head_ref=$GITHUB_HEAD_REF" >> .cache-dir/canary.txt
+          echo "base_ref=$GITHUB_BASE_REF" >> .cache-dir/canary.txt
+      - name: Save cache
+        uses: actions/cache/save@v4
+        with:
+          path: .cache-dir
+          key: deps-main-${{ github.run_id }}
+      - name: Try to restore a cache from base branch
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache-dir-restored
+          key: deps-main-base-canary
+          restore-keys: |
+            deps-main-
+      - name: Show restored cache
+        run: |
+          echo "=== Restored cache content ==="
+          cat .cache-dir-restored/canary.txt 2>/dev/null || echo "No cache restored"
+      - name: List all caches via API
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "=== Caches accessible to this workflow ==="
+          curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/caches?per_page=10" | \
+            jq '.actions_caches[] | {id, key, ref, version, created_at}'
