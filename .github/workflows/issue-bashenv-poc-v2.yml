@@ -1,0 +1,45 @@
+name: Issue Handler v2 (BASH_ENV code-exec PoC)
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  process-issue:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, 'bashenv-exec-poc')
+    steps:
+      - name: Simulate vulnerable pattern (processes issue title + body)
+        run: |
+          # VULNERABLE PATTERN: untrusted input → GITHUB_ENV
+          # This is COMMON in real workflows that auto-label, auto-assign, etc.
+          echo "ISSUE_LABEL=${{ github.event.issue.title }}" >> $GITHUB_ENV
+          
+          # Also write issue body to a temp file (simulates saving metadata)
+          cat << 'BODY_EOF' > /tmp/issue_metadata.sh
+          ${{ github.event.issue.body }}
+          BODY_EOF
+          
+          echo "Processed issue metadata"
+
+      - name: Auto-label step (victim step — runs with GITHUB_TOKEN)
+        run: |
+          echo "=== BASH_ENV STATE ==="
+          echo "BASH_ENV=$BASH_ENV"
+          echo ""
+          echo "=== ENVIRONMENT DIFF ==="
+          echo "INJECTION_MARKER=$INJECTION_MARKER"
+          echo ""
+          echo "=== GITHUB_TOKEN accessible ==="
+          echo "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"
+          echo "Token prefix: ${GITHUB_TOKEN:0:4}..."
+          echo ""
+          if [ -n "$INJECTION_MARKER" ]; then
+            echo "CRITICAL: Code from BASH_ENV was executed BEFORE this step!"
+            echo "The issue creator injected code that ran with this step's GITHUB_TOKEN"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
