@@ -1,0 +1,42 @@
+name: Issue Label Setter (BASH_ENV PoC - untrusted input)
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  auto-label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract issue metadata
+        # VULNERABLE PATTERN: untrusted input goes to GITHUB_ENV via old KEY=VALUE format
+        # This pattern is COMMON in real-world workflows that process issue titles/bodies
+        run: |
+          echo "ISSUE_LABEL=${{ github.event.issue.title }}" >> $GITHUB_ENV
+          echo "Set ISSUE_LABEL from issue title"
+
+      - name: Verify BASH_ENV state
+        run: |
+          echo "=== BASH_ENV injection check ==="
+          echo "BASH_ENV value: [$BASH_ENV]"
+          echo "ISSUE_LABEL value: [$ISSUE_LABEL]"
+          if [ -n "$BASH_ENV" ]; then
+            echo "CRITICAL: BASH_ENV was SET from issue title injection!"
+            echo "NODE_OPTIONS would be BLOCKED here, but BASH_ENV is NOT in the blocklist"
+          else
+            echo "BASH_ENV is empty (injection did not work or title was clean)"
+          fi
+          # Also check https_proxy
+          if [ -n "$https_proxy" ]; then
+            echo "CRITICAL: https_proxy was SET - all HTTPS traffic would be MITMed!"
+          fi
+          
+      - name: Prove bash sources BASH_ENV
+        if: env.BASH_ENV != ''
+        run: |
+          echo "This step's BASH_ENV: $BASH_ENV"
+          echo "If BASH_ENV points to a file, bash sourced it BEFORE this script"
+          echo "The blocklist in FileCommandManager.cs only has NODE_OPTIONS"
+          echo "BASH_ENV, LD_PRELOAD, https_proxy are NOT blocked"
