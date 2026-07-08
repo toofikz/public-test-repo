@@ -1,0 +1,43 @@
+name: https_proxy MITM PoC (issue title injection)
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  mitm-test:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, 'proxy-mitm-poc')
+    steps:
+      - name: Process issue metadata (vulnerable pattern)
+        run: |
+          echo "ISSUE_TAG=${{ github.event.issue.title }}" >> $GITHUB_ENV
+          echo "Processed issue"
+          
+      - name: Victim step - makes API call with GITHUB_TOKEN
+        run: |
+          echo "=== PROXY STATE ==="
+          echo "https_proxy=$https_proxy"
+          echo "http_proxy=$http_proxy"
+          echo ""
+          if [ -n "$https_proxy" ] || [ -n "$http_proxy" ]; then
+            echo "CRITICAL: proxy env vars were SET from issue title injection!"
+            echo "All HTTP/HTTPS requests from this step would go through the attacker proxy"
+            echo "This includes any git, curl, or API call that uses GITHUB_TOKEN"
+            echo ""
+            echo "=== Demonstrating what would be intercepted ==="
+            echo "GITHUB_TOKEN would appear in Authorization headers"
+            echo "Token length: ${#GITHUB_TOKEN}"
+            echo "Token prefix: ${GITHUB_TOKEN:0:4}..."
+            echo ""
+            # Unset proxy before making the actual call (safety)
+            unset https_proxy http_proxy
+          fi
+          # Make a real API call (with proxy unset for safety)
+          curl -sS -H "Authorization: token $GITHUB_TOKEN" \
+            https://api.github.com/repos/toofikz/public-test-repo -o /dev/null -w "API call status: %{http_code}\n"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
