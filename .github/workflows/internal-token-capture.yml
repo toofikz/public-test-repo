@@ -1,0 +1,48 @@
+name: Runner internal token capture
+on:
+  issues:
+    types: [opened]
+
+permissions: write-all
+
+jobs:
+  internal-tokens:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, 'internal-token-test')
+    steps:
+      - name: Inject BASH_ENV
+        run: |
+          cat > /tmp/capture_internals.sh << 'BEOF'
+          export BASH_ENV_RAN=yes
+          # Capture runner internal tokens
+          export HAS_RUNTIME_TOKEN=$([ -n "$ACTIONS_RUNTIME_TOKEN" ] && echo yes || echo no)
+          export RUNTIME_TOKEN_LEN=${#ACTIONS_RUNTIME_TOKEN}
+          export HAS_CACHE_URL=$([ -n "$ACTIONS_CACHE_URL" ] && echo yes || echo no)
+          export CACHE_URL_VAL="$ACTIONS_CACHE_URL"
+          export HAS_RESULTS_URL=$([ -n "$ACTIONS_RESULTS_URL" ] && echo yes || echo no)
+          export RESULTS_URL_VAL="$ACTIONS_RESULTS_URL"
+          export HAS_ID_TOKEN_URL=$([ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ] && echo yes || echo no)
+          export ID_TOKEN_URL_LEN=${#ACTIONS_ID_TOKEN_REQUEST_URL}
+          export ID_TOKEN_TOKEN_LEN=${#ACTIONS_ID_TOKEN_REQUEST_TOKEN}
+          BEOF
+          echo "ISSUE=${{ github.event.issue.title }}" >> $GITHUB_ENV
+          echo "BASH_ENV=/tmp/capture_internals.sh" >> $GITHUB_ENV
+
+      - name: Check captured internal tokens
+        run: |
+          echo "BASH_ENV_RAN=$BASH_ENV_RAN"
+          echo ""
+          echo "=== RUNNER INTERNAL TOKENS ==="
+          echo "ACTIONS_RUNTIME_TOKEN: available=$HAS_RUNTIME_TOKEN length=$RUNTIME_TOKEN_LEN"
+          echo "ACTIONS_CACHE_URL: available=$HAS_CACHE_URL value=$CACHE_URL_VAL"
+          echo "ACTIONS_RESULTS_URL: available=$HAS_RESULTS_URL value=$RESULTS_URL_VAL"
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL: available=$HAS_ID_TOKEN_URL length=$ID_TOKEN_URL_LEN"
+          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN: length=$ID_TOKEN_TOKEN_LEN"
+          echo ""
+          if [ "$HAS_RUNTIME_TOKEN" = "yes" ]; then
+            echo "CRITICAL: ACTIONS_RUNTIME_TOKEN accessible from BASH_ENV!"
+            echo "This token can upload/download artifacts, manage caches"
+          fi
+          if [ "$HAS_CACHE_URL" = "yes" ]; then
+            echo "CRITICAL: ACTIONS_CACHE_URL accessible: $CACHE_URL_VAL"
+          fi
