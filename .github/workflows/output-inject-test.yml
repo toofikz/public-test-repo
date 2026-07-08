@@ -1,0 +1,31 @@
+name: GITHUB_OUTPUT injection test
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+
+jobs:
+  output-test:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, 'output-inject-test')
+    steps:
+      - name: Set output from issue title
+        id: extract
+        run: |
+          # Vulnerable pattern: untrusted input to GITHUB_OUTPUT
+          echo "label=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
+          echo "Outputs set"
+          
+      - name: Check what outputs were set
+        run: |
+          echo "=== STEP OUTPUTS ==="
+          echo "label=${{ steps.extract.outputs.label }}"
+          echo "injected=${{ steps.extract.outputs.injected }}"
+          echo ""
+          if [ -n "${{ steps.extract.outputs.injected }}" ]; then
+            echo "CRITICAL: Additional output 'injected' was SET from newline injection!"
+          else
+            echo "No additional outputs injected (newline did NOT inject into GITHUB_OUTPUT)"
+          fi
