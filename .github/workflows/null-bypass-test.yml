@@ -1,0 +1,36 @@
+name: NULL byte blocklist bypass test
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  null-test:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, 'null-bypass-test')
+    steps:
+      - name: Test null byte variants
+        run: |
+          # Test 1: Literal null byte in env var name
+          printf 'NODE\x00OPTIONS=--test-null\n' >> $GITHUB_ENV 2>&1 || true
+          
+          # Test 2: Percent-encoded null
+          echo 'NODE%00OPTIONS=--test-pct' >> $GITHUB_ENV 2>&1 || true
+          
+          # Test 3: GITHUB_STATE test (deprecated sibling - has NO blocklist)
+          if [ -n "$GITHUB_STATE" ]; then
+            echo "GITHUB_STATE file exists: $GITHUB_STATE"
+            echo "test_state=state_value" >> $GITHUB_STATE 2>&1 || true
+            echo "NODE_OPTIONS=--state-bypass" >> $GITHUB_STATE 2>&1 || true
+          else
+            echo "GITHUB_STATE not set (deprecated)"
+          fi
+          
+          echo "Step 1 done"
+          
+      - name: Check results
+        run: |
+          echo "=== Env vars ==="
+          env | grep -i 'NODE\|null\|state\|OPTIONS' | head -10
+          echo ""
+          echo "NODE_OPTIONS=$NODE_OPTIONS"
+          echo "test_state from GITHUB_STATE: N/A (state only available to same action pre/post)"
