@@ -1,0 +1,7 @@
+name: Test Action
+description: Test
+runs:
+  using: composite
+  steps:
+    - run: echo "Action executed from $GITHUB_ACTION_PATH"
+      shell: bash
