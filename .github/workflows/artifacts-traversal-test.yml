@@ -1,0 +1,49 @@
+name: GITHUB_ARTIFACTS path traversal test
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  traversal-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if GITHUB_ARTIFACTS is available
+        run: |
+          echo "GITHUB_ARTIFACTS=${GITHUB_ARTIFACTS:-NOT_SET}"
+          echo "GITHUB_ARTIFACTS_LIST=${GITHUB_ARTIFACTS_LIST:-NOT_SET}"
+          
+          if [ -n "$GITHUB_ARTIFACTS" ]; then
+            echo "GITHUB_ARTIFACTS IS SET! Feature is enabled."
+            echo ""
+            
+            # Test 1: Write a legitimate file path
+            echo "build/output.bin" >> $GITHUB_ARTIFACTS 2>&1 || true
+            
+            # Test 2: Absolute path outside workspace
+            echo "/etc/hostname" >> $GITHUB_ARTIFACTS 2>&1 || true
+            
+            # Test 3: Relative path traversal
+            echo "../../etc/hostname" >> $GITHUB_ARTIFACTS 2>&1 || true
+            
+            echo ""
+            echo "Written test entries to GITHUB_ARTIFACTS"
+          else
+            echo "GITHUB_ARTIFACTS NOT SET. Feature not enabled on this runner."
+            echo "The feature is gated by actions_runner_allow_artifacts_file flag."
+            echo "Trying to enable via env var..."
+            export ACTIONS_RUNNER_ALLOW_ARTIFACTS_FILE=true
+            echo "Env var set but runner needs restart to pick it up."
+          fi
+          
+      - name: Check GITHUB_ARTIFACTS_LIST for digests
+        run: |
+          echo "=== GITHUB_ARTIFACTS_LIST content ==="
+          if [ -n "$GITHUB_ARTIFACTS_LIST" ] && [ -f "$GITHUB_ARTIFACTS_LIST" ]; then
+            cat $GITHUB_ARTIFACTS_LIST
+            echo ""
+            echo "If path traversal worked, digests of out-of-workspace files appear above."
+          else
+            echo "GITHUB_ARTIFACTS_LIST not available"
+          fi
