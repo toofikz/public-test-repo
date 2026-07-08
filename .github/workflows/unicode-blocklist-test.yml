@@ -1,0 +1,28 @@
+name: Unicode blocklist bypass test
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  unicode-test:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, 'unicode-blocklist-test')
+    steps:
+      - name: Test unicode NODE_OPTIONS variants
+        run: |
+          # Standard NODE_OPTIONS (should be BLOCKED)
+          echo "NODE_OPTIONS=--test-standard" >> $GITHUB_ENV 2>&1 || true
+          
+          # Try with fullwidth characters
+          echo "ＮＯＤＥ_OPTIONS=--test-fullwidth" >> $GITHUB_ENV 2>&1 || true
+          
+          # Test with zero-width characters
+          printf 'NODE\xe2\x80\x8b_OPTIONS=--test-zwsp\n' >> $GITHUB_ENV 2>&1 || true
+          
+          echo "Step 1 done"
+          
+      - name: Check results
+        run: |
+          echo "NODE_OPTIONS=$NODE_OPTIONS"
+          echo "All env vars with NODE or OPTIONS:"
+          env | grep -i 'node\|option' | head -10
