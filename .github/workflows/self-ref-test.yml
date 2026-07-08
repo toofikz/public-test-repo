@@ -1,0 +1,15 @@
+name: Dollar-self path traversal test
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  self-ref:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, 'self-ref-test')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test normal $/ reference
+        uses: ./.github/actions/test
+      - name: Report
+        run: echo "Self-reference test complete"
