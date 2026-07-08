@@ -1,0 +1,29 @@
+name: Blocklist case test
+on:
+  workflow_dispatch:
+
+jobs:
+  case-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test blocklist cases
+        run: |
+          # Test 1: NODE_OPTIONS (should be BLOCKED)
+          echo "NODE_OPTIONS=--test" >> $GITHUB_ENV 2>&1 || true
+          
+          # Test 2: node_options (lowercase, should also be blocked per OrdinalIgnoreCase)
+          echo "node_options=--test" >> $GITHUB_ENV 2>&1 || true
+          
+          # Test 3: BASH_ENV (should NOT be blocked)
+          echo "BASH_ENV=/dev/null" >> $GITHUB_ENV 2>&1 || true
+          
+          # Test 4: NODE_OPTIONS with unicode lookalike (Ο = Greek capital omicron)
+          # Can't easily test this from shell
+          
+          echo "Step 1 done"
+          
+      - name: Check what got through
+        run: |
+          echo "NODE_OPTIONS=$NODE_OPTIONS"
+          echo "node_options=$node_options"
+          echo "BASH_ENV=$BASH_ENV"
