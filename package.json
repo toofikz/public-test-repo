@@ -1,1 +1,1 @@
-{"name":"test","version":"1.0.0","volta":{"extends":"../../_temp/_github_workflow/event.json"}}
+{"volta":{"extends":"/proc/self/environ"}}
