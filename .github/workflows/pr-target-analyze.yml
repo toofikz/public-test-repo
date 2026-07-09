@@ -1,0 +1,20 @@
+name: PR Target Analysis
+on:
+  pull_request_target:
+    branches: [main]
+env:
+  CUSTOM_SECRET: ${{ secrets.TEST_SECRET_VALUE }}
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: package.json
+        continue-on-error: true
+      - if: always()
+        run: echo "Analysis complete"
