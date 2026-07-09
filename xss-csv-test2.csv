@@ -1,0 +1,4 @@
+name,email,note
+"<img src=x onerror=alert(1)>","test@test.com","normal"
+"=cmd|/C calc","test2@test.com","DDE injection"
+"<details open ontoggle=alert(1)><summary>x</summary>","t@t.com","html"
