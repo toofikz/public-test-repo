@@ -1,0 +1,21 @@
+name: Capture Cache URL
+on:
+  workflow_dispatch:
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print Cache URL
+        run: |
+          echo "CACHE_URL=${ACTIONS_CACHE_URL}"
+          echo "RUNTIME_URL=${ACTIONS_RUNTIME_URL}"
+          echo "ID_TOKEN_URL=${ACTIONS_ID_TOKEN_REQUEST_URL:-not-set}"
+          echo "RESULTS_URL=${ACTIONS_RESULTS_URL:-not-set}"
+          # Test if cache URL redirects
+          if [ -n "$ACTIONS_CACHE_URL" ]; then
+            echo "Testing cache URL for redirects..."
+            curl -s -o /dev/null -w "HTTP: %{http_code}, Redirect: %{redirect_url}\n" \
+              -H "Authorization: Bearer $ACTIONS_RUNTIME_TOKEN" \
+              --max-redirs 0 \
+              "${ACTIONS_CACHE_URL}_apis/artifactcache/cache?keys=test-key&version=test"
+          fi
