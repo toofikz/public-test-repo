@@ -1,0 +1,23 @@
+name: Test GITHUB_ARTIFACTS
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for GITHUB_ARTIFACTS
+        run: |
+          echo "GITHUB_ARTIFACTS: ${GITHUB_ARTIFACTS:-NOT_SET}"
+          echo "GITHUB_OUTPUT: ${GITHUB_OUTPUT:-NOT_SET}"
+          echo "GITHUB_ENV: ${GITHUB_ENV:-NOT_SET}"
+          echo "GITHUB_STATE: ${GITHUB_STATE:-NOT_SET}"
+          echo "GITHUB_STEP_SUMMARY: ${GITHUB_STEP_SUMMARY:-NOT_SET}"
+          if [ -n "$GITHUB_ARTIFACTS" ]; then
+            echo "ARTIFACTS FILE EXISTS: $(ls -la $GITHUB_ARTIFACTS 2>&1)"
+            echo "test_artifact_name@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" >> "$GITHUB_ARTIFACTS"
+            echo "Wrote to GITHUB_ARTIFACTS"
+            cat "$GITHUB_ARTIFACTS"
+          else
+            echo "GITHUB_ARTIFACTS not available on this runner"
+          fi
