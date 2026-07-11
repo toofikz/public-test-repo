@@ -1,0 +1,22 @@
+name: Cross-Account addPath PoC
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Supply chain dependency (toofikz2 action)
+        uses: toofikz2/public-test-repo@main
+
+      - name: Legitimate setup-uv (reads XDG_BIN_HOME)
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+
+      - name: Check PATH hijack
+        run: |
+          echo "=== PATH ==="
+          echo "$PATH" | tr ":" "\n" | head -10
+          echo ""
+          echo "=== which python3 ==="
+          which python3
+          echo ""
+          echo "=== Execute python3 ==="
+          python3 --version 2>&1 || true
